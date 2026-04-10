@@ -1,69 +1,76 @@
 # Training — LinkedIn Bullshit Detector
 
-Ce dossier contient le script d'entraînement du modèle de scoring automatique.
+This folder contains the bootstrap training script for the automatic scoring model.
 
-Le modèle est une **Ridge Regression** entraînée sur des features TF-IDF (texte du post + intitulé de l'auteur) et des features numériques (likes, commentaires, longueur du texte, ratio d'emojis…). Une fois entraîné, il est exporté sous forme de `tfidf_vocab.json` — un fichier JSON léger (~34 KB) qui contient le vocabulaire, les valeurs IDF, les coefficients Ridge et les paramètres de normalisation. L'inférence est ensuite faite directement dans le navigateur sans aucune dépendance externe.
-
-Paramètres actuels : `alpha=0.1`, `min_df=4`, `max_features=500`, bigrammes activés.
+Under normal use, **you don't need to run this**. The extension retrains the model directly in your browser from the popup, with no Python required. This script exists for reproducibility — it lets you regenerate `tfidf_vocab.json` from scratch if you want to change the vocabulary, tweak hyperparameters, or understand exactly how the base model was built.
 
 ---
 
-## Prérequis
+## What this script produces
 
-Python 3.9+ et pip :
+The model is a **Ridge Regression** trained on two types of features:
+
+- **TF-IDF** — bag-of-words representation of the post text and author headline (500 features, uni- and bigrams)
+- **Numeric features** — likes, comments, text length, word count, emoji ratio, keyword count, whether the post was promoted
+
+The output is `tfidf_vocab.json` — a ~34 KB JSON file containing the vocabulary, IDF weights, Ridge coefficients, and scaler parameters. This file is the base model loaded by the extension when no personalized model exists yet.
+
+Current hyperparameters: `alpha=0.1`, `min_df=4`, `max_features=500`, bigrams enabled.
+
+---
+
+## Requirements
+
+Python 3.9+ and pip:
 
 ```bash
-pip install scikit-learn onnx skl2onnx
+pip install scikit-learn skl2onnx
 ```
 
 ---
 
-## Collecter des données
-
-Utilise l'extension **BS Rater** pour labelliser des posts LinkedIn (slider 0–10), puis exporte ton dataset via le popup → *Exporter JSON*.
-
-Un minimum de 100–200 posts labellisés est recommandé. Plus tu en as, plus le modèle sera précis.
-
----
-
-## Entraîner le modèle
+## Usage
 
 ```bash
-python train.py fichier1.json fichier2.json ...
+python train.py file1.json file2.json ...
 ```
 
-Le script accepte un nombre arbitraire de fichiers JSON en entrée — utile pour fusionner plusieurs sessions de collecte.
+The script accepts any number of JSON files — useful for merging multiple labeling sessions. Each file should be an export from the extension's Collect mode (popup → *Export JSON*).
 
-Il affiche :
-- La distribution de tes scores
-- La MAE en validation croisée (Ridge vs SVR)
-- Les mots les plus associés aux scores élevés (bullshit) et bas (clean)
+It prints:
+- The distribution of your scores
+- Cross-validated MAE (5 folds) for Ridge and SVR
+- The words most associated with high (bullshit) and low (clean) scores
 
-Et produit deux fichiers :
-- `tfidf_vocab.json` — à copier à la racine de l'extension
-- `model.pkl` — pipeline complet pour inférence Python (non versionné)
+And writes two files:
+- `tfidf_vocab.json` — copy this to the repo root to update the base model
+- `model.pkl` — full pipeline for Python inference (not versioned)
 
 ---
 
-## Mettre à jour l'extension
+## Updating the extension
 
-Une fois l'entraînement terminé, copie `tfidf_vocab.json` à la racine du repo :
+After training, copy `tfidf_vocab.json` to the repo root:
 
 ```bash
 cp tfidf_vocab.json ../tfidf_vocab.json
 ```
 
-Recharge l'extension dans Chrome (`chrome://extensions` → bouton recharger) et le nouveau modèle est actif immédiatement.
+Reload the extension in Chrome (`chrome://extensions` → reload button). The new base model is active immediately.
+
+Note: any personalized model trained via the popup takes priority over this file. To fall back to the base model, use the *Revert to base model* button in the popup.
 
 ---
 
-## Interpréter les résultats
+## Interpreting results
 
-| Métrique | Description |
+| Metric | Description |
 |---|---|
-| MAE cross-val | Erreur moyenne sur données non vues — la métrique principale |
-| MAE train | Erreur sur données d'entraînement — doit être plus basse que cross-val |
+| Cross-val MAE | Average error on unseen data (5-fold) — the primary metric |
+| Train MAE | Error on training data — should be lower than cross-val MAE |
 
-Une MAE cross-val autour de **2.2** est la baseline actuelle à 156 posts. Elle devrait descendre sous **2.0** avec 300+ posts.
+A cross-val MAE around **2.2** is the current baseline at 156 posts. It should drop below **2.0** with 300+ posts.
 
-Si MAE train << MAE cross-val (ex. 0.3 vs 2.2), le modèle overfitte — augmente `alpha` dans l'appel `Ridge(alpha=...)`. À l'inverse si MAE train ≈ MAE cross-val, tu peux essayer de baisser `alpha`.
+If train MAE << cross-val MAE (e.g. 0.3 vs 2.2), the model is overfitting — increase `alpha` in the `Ridge(alpha=...)` call. If train MAE ≈ cross-val MAE, you can try lowering `alpha`.
+
+In-browser retraining uses an adaptive alpha (`20 / n_samples`) so you don't need to tune this manually there.
