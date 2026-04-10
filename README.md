@@ -1,6 +1,6 @@
 # 🛡️ LinkedIn Bullshit Detector (LBD)
 
-A Chrome extension that helps you identify and manually rate low-quality LinkedIn posts — and collect labeled data to eventually train a real detection model.
+A Chrome extension that helps you identify and manually rate low-quality LinkedIn posts — and collect labeled data to retrain the detection model on your own labels.
 
 ---
 
@@ -8,7 +8,8 @@ A Chrome extension that helps you identify and manually rate low-quality LinkedI
 
 LBD injects a small rating widget under every LinkedIn post in your feed. For each post, it shows:
 
-- An **automatic pre-score** based on keyword detection and author headline analysis (bullshit jargon, personal pronouns, suspiciously long titles…)
+- An **automatic score** predicted by a Ridge Regression model trained on labeled LinkedIn posts, running fully in-browser with no server required
+- The **bullshit keywords** detected in the post text, shown as informational tags
 - A **manual 0–10 slider** to record your own judgment
 - A **save button** that stores the post text, author metadata, and both scores locally in your browser
 
@@ -30,28 +31,46 @@ No build step required. Load it directly as an unpacked extension:
 
 ## How the auto-score works
 
-The automatic score is a heuristic starting point, not a ground truth. It combines two signals:
+The automatic score is predicted by a **Ridge Regression** model trained on manually labeled LinkedIn posts. It combines two types of features:
 
-- **Keyword score** — counts buzzwords and bullshit patterns in the post text (e.g. *"thought leader"*, *"excited to announce"*, *"resilience"*), scaled logarithmically
-- **Headline penalty** — flags author titles containing personal pronouns, marketing jargon (™, *ninja*, *solopreneur*…), or suspiciously formatted service lists
+- **TF-IDF** — a weighted bag-of-words representation of the post text and author headline (500 features, uni- and bigrams)
+- **Numeric features** — likes, comments, text length, word count, number of detected keywords, and whether the post was algorithmically promoted
 
-Final score is capped at 10. Thresholds: 🟢 < 4 / 🟠 4–6 / 🔴 ≥ 7.
+The model weights live in `tfidf_vocab.json` at the root of the repo. Inference is done in pure JavaScript — no external dependencies, no network calls.
 
-All keyword rules live in `rules.js` and are easy to extend.
+Keywords from `rules.js` are still displayed under the score as informational tags, but no longer drive the score itself.
+
+Score thresholds: 🟢 < 4 / 🟠 4–6 / 🔴 ≥ 7.
+
+---
+
+## Retraining the model
+
+The model can be retrained on your own labeled data. See [`training/README.md`](training/README.md) for instructions.
+
+The short version:
+
+```bash
+cd training
+pip install scikit-learn onnx skl2onnx
+python train.py your_dataset.json
+cp tfidf_vocab.json ../tfidf_vocab.json
+```
+
+Then reload the extension in Chrome — the new model is active immediately.
 
 ---
 
 ## Roadmap
 
-This extension is the **data collection phase** of a larger project:
-
 - [x] Rule-based auto-scoring (heuristic baseline)
 - [x] Manual rating widget + local storage
 - [x] JSON export
-- [ ] Collect ~200–300 labeled posts
-- [ ] Train a lightweight classifier on the exported data (Python + scikit-learn / PyTorch)
-- [ ] Convert the model to run fully in-browser (TensorFlow.js or ONNX Runtime Web)
-- [ ] Replace the heuristic auto-score with the trained model — no server required
+- [x] Train a Ridge Regression model on labeled data (Python + scikit-learn)
+- [x] In-browser inference — no server required
+- [ ] Collect 300+ labeled posts and retrain for improved accuracy
+- [ ] Collect ratings from other users to build a more consensual ground truth
+- [ ] Explore alternative model architectures (e.g. gradient boosting, sentence embeddings, neural networks) as the dataset grows
 
 ---
 
