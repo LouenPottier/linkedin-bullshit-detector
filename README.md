@@ -1,6 +1,6 @@
 # 🛡️ LinkedIn Bullshit Detector (LBD)
 
-A Chrome extension that detects and filters low-quality LinkedIn posts using a personalized Ridge Regression model — trained entirely in your browser, on your own labels, with no server required.
+A Chrome extension that detects and filters low-quality LinkedIn posts using a personalized Ridge Regression model trained entirely in one click in your browser, on your own labels, with no server required. The extension comes with a pretrained model that you can replace once you have labeled enough posts (which is totally optionnal, you can just use the pretrained model if you like it).
 
 ---
 
@@ -10,9 +10,11 @@ LBD runs in two modes, switchable from the popup:
 
 **🚫 Filter mode** — automatically hides posts above a configurable bullshit threshold. Sponsored posts can also be hidden. A placeholder shows the score and lets you reveal the post if you want.
 
-**🧪 Collect mode** — injects a rating widget under every post. For each post it shows the automatic score, detected bullshit keywords, and a 0–10 slider to record your own judgment. Labeled posts are saved locally and can be exported as JSON.
+**🧪 Collect mode** — injects a rating widget under every post. For each post it shows the automatic score, detected bullshit keywords, and a 0–10 slider to record your own judgment. Labeled posts are saved locally and can be exported as JSON. 10 = full bulshit, 0 = useful post that you are happy to see in your feed.
 
-Once you've labeled enough posts, you can retrain the model directly from the popup — no Python, no server.
+Again, your labeled posts are **not** sent anywhere, they stay on your browser.
+
+Once you've labeled enough posts, you can retrain the model directly from the popup in one click. It takes less than 1 second. 
 
 ---
 
