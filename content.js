@@ -7,7 +7,7 @@ const log = (...args) => DEBUG && console.log("[BSD]", ...args);
 
 // ── État global ──
 let MODE      = "filter";   // "filter" | "collect"
-let THRESHOLD = 6;
+let THRESHOLD = 7;
 let MODEL     = null;
 
 // ============================================================
