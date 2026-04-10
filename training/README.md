@@ -2,7 +2,9 @@
 
 Ce dossier contient le script d'entraînement du modèle de scoring automatique.
 
-Le modèle est une **Ridge Regression** entraînée sur des features TF-IDF (texte du post + intitulé de l'auteur) et des features numériques (likes, commentaires, longueur du texte…). Une fois entraîné, il est exporté sous forme de `tfidf_vocab.json` — un fichier JSON léger (~34 KB) qui contient le vocabulaire, les valeurs IDF, les coefficients Ridge et les paramètres de normalisation. L'inférence est ensuite faite directement dans le navigateur sans aucune dépendance externe.
+Le modèle est une **Ridge Regression** entraînée sur des features TF-IDF (texte du post + intitulé de l'auteur) et des features numériques (likes, commentaires, longueur du texte, ratio d'emojis…). Une fois entraîné, il est exporté sous forme de `tfidf_vocab.json` — un fichier JSON léger (~34 KB) qui contient le vocabulaire, les valeurs IDF, les coefficients Ridge et les paramètres de normalisation. L'inférence est ensuite faite directement dans le navigateur sans aucune dépendance externe.
+
+Paramètres actuels : `alpha=0.1`, `min_df=4`, `max_features=500`, bigrammes activés.
 
 ---
 
@@ -62,6 +64,6 @@ Recharge l'extension dans Chrome (`chrome://extensions` → bouton recharger) et
 | MAE cross-val | Erreur moyenne sur données non vues — la métrique principale |
 | MAE train | Erreur sur données d'entraînement — doit être plus basse que cross-val |
 
-Une MAE cross-val autour de **2.0–2.5** est correcte pour 100–200 exemples. Elle devrait descendre sous **2.0** avec 300+ posts.
+Une MAE cross-val autour de **2.2** est la baseline actuelle à 156 posts. Elle devrait descendre sous **2.0** avec 300+ posts.
 
-Si MAE train << MAE cross-val, le modèle overfitte — augmente `alpha` dans l'appel `Ridge(alpha=...)`.
+Si MAE train << MAE cross-val (ex. 0.3 vs 2.2), le modèle overfitte — augmente `alpha` dans l'appel `Ridge(alpha=...)`. À l'inverse si MAE train ≈ MAE cross-val, tu peux essayer de baisser `alpha`.

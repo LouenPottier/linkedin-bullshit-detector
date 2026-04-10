@@ -19,8 +19,15 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_absolute_error
 from scipy.sparse import hstack
+import unicodedata
 import warnings
 warnings.filterwarnings("ignore")
+
+# Détection d'emojis : tout caractère dont la catégorie Unicode commence par "S" (symbol) ou "So"
+def _is_emoji(c):
+    cat = unicodedata.category(c)
+    return cat in ("So", "Sm") or ord(c) > 0x1F000
+EMOJI_CHARS = set(c for c in map(chr, range(0x110000)) if _is_emoji(c))
 
 # ============================================================
 # 1. CHARGEMENT
@@ -67,13 +74,20 @@ def build_features(posts):
         comments   = parse_count(p.get("comments", ""))
         auto_score = p.get("autoScore", 0) or 0
         text_len   = len(text)
-        word_count = len(text.split())
+        words      = text.split()
+        word_count = len(words)
         fc_flag    = feed_context_flag(p.get("feedContext", ""))
         kw_count   = len(p.get("autoKeywords", []) or [])
 
+        # Nouvelles features
+        emoji_count  = sum(1 for c in text if c in EMOJI_CHARS)
+        emoji_ratio  = emoji_count / max(word_count, 1)
+        headline_len = len(headline)
+
         num_matrix.append([
             likes, comments, auto_score,
-            text_len, word_count, fc_flag, kw_count
+            text_len, word_count, fc_flag, kw_count,
+            emoji_ratio, headline_len,
         ])
 
     labels = np.array([p.get("manualScore", 0) for p in posts], dtype=float)
@@ -117,7 +131,7 @@ def build_pipeline(regressor):
         ngram_range=(1, 2),   # unigrammes + bigrammes
         max_features=500,
         sublinear_tf=True,    # log(tf) pour atténuer les répétitions
-        min_df=2,             # ignore les mots qui n'apparaissent qu'une fois
+        min_df=4,             # ignore les mots apparaissant moins de 4 fois
         stop_words=STOP_WORDS,
     )
     scaler = StandardScaler()
@@ -201,7 +215,7 @@ def export_onnx(tfidf, scaler, reg, texts, num_matrix, labels, output_path="mode
     X_num  = scaler.transform(num_matrix).astype(np.float32)
     X_combined = np.hstack([X_text, X_num])
 
-    ridge_onnx = Ridge(alpha=reg.alpha if hasattr(reg, "alpha") else 1.0)
+    ridge_onnx = Ridge(alpha=reg.alpha if hasattr(reg, "alpha") else 0.1)
     ridge_onnx.fit(X_combined, labels)
 
     n_features = X_combined.shape[1]
@@ -241,8 +255,8 @@ def main():
 
     # Évaluation Ridge
     tfidf_r, scaler_r, ridge, X_r = evaluate(
-        "Ridge Regression (alpha=1.0)",
-        Ridge(alpha=1.0),
+        "Ridge Regression (alpha=0.1)",
+        Ridge(alpha=0.1),
         texts, num_matrix, labels
     )
     print_top_words(tfidf_r, ridge)

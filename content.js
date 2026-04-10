@@ -73,15 +73,20 @@ function computeModelScore(postData) {
 
   const lower = (postData.text || "").toLowerCase();
   const found = [...new Set(BSD_RULES.keywords.filter(kw => lower.includes(kw.toLowerCase())))];
+  const textWords = (postData.text || "").split(/\s+/);
+  const wordCount = textWords.length;
+  const emojiCount = [...(postData.text || "")].filter(c => c.codePointAt(0) > 0x1F000).length;
 
   const rawNum = [
     parseCount(postData.likes),
     parseCount(postData.comments),
     0,
     (postData.text || "").length,
-    (postData.text || "").split(/\s+/).length,
+    wordCount,
     feedContextFlag(postData.feedContext),
     found.length,
+    emojiCount / Math.max(wordCount, 1),
+    (postData.headline || "").length,
   ];
   const scaledNum = scaleNumFeatures(rawNum);
 
