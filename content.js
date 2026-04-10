@@ -67,18 +67,17 @@ function feedContextFlag(fc) {
 }
 
 function computeModelScore(postData) {
-  if (!MODEL) return { score: 0, found: [] };
+  if (!MODEL) return { score: 0 };
   const combined = `${postData.text || ""} ${postData.headline || ""}`.trim();
   const tfidfVec = tfidfVector(combined);
-  const lower = (postData.text || "").toLowerCase();
-  const found = [...new Set(BSD_RULES.keywords.filter(kw => lower.includes(kw.toLowerCase())))];
+
   const textWords  = (postData.text || "").split(/\s+/);
   const wordCount  = textWords.length;
   const emojiCount = [...(postData.text || "")].filter(c => c.codePointAt(0) > 0x1F000).length;
   const rawNum = [
-    parseCount(postData.likes), parseCount(postData.comments), 0,
+    parseCount(postData.likes), parseCount(postData.comments),
     (postData.text || "").length, wordCount, feedContextFlag(postData.feedContext),
-    found.length, emojiCount / Math.max(wordCount, 1), (postData.headline || "").length,
+    emojiCount / Math.max(wordCount, 1), (postData.headline || "").length,
   ];
   const scaledNum = scaleNumFeatures(rawNum);
   const coef = MODEL.ridge_coef;
@@ -86,7 +85,8 @@ function computeModelScore(postData) {
   for (let i = 0; i < MODEL.n_tfidf_features; i++) score += tfidfVec[i] * coef[i];
   for (let i = 0; i < MODEL.n_num_features; i++)   score += scaledNum[i] * coef[MODEL.n_tfidf_features + i];
   score = Math.round(Math.max(0, Math.min(10, score)));
-  return { score, found };
+
+  return { score };
 }
 
 // ============================================================
@@ -176,13 +176,13 @@ function generatePostId(postEl) {
 // SAUVEGARDE
 // ============================================================
 
-async function savePost(postId, data, manualScore, autoScore, autoKeywords) {
+async function savePost(postId, data, manualScore, autoScore) {
   return new Promise((resolve) => {
     chrome.storage.local.get(["bullshit_dataset"], (result) => {
       const dataset = result.bullshit_dataset || {};
       const { author, ...dataWithoutAuthor } = data;
       dataset[postId] = {
-        ...dataWithoutAuthor, postId, manualScore, autoScore, autoKeywords,
+        ...dataWithoutAuthor, postId, manualScore, autoScore,
         savedAt: new Date().toISOString(),
         pageUrl: window.location.href,
       };
@@ -221,14 +221,9 @@ function applyFilterMode(postEl, score, sponsored = false) {
 // MODE COLLECTE — widget notation
 // ============================================================
 
-function createCollectWidget(postEl, postId, postData, autoScore, autoKeywords) {
+function createCollectWidget(postEl, postId, postData, autoScore) {
   const isSuspect = autoScore >= 4;
   const autoLevel = autoScore >= 7 ? "🔴" : autoScore >= 4 ? "🟠" : "🟢";
-
-  const kwHtml = autoKeywords.length > 0
-    ? autoKeywords.slice(0, 6).map(k => `<em>${k}</em>`).join(" ") +
-      (autoKeywords.length > 6 ? ` <span style="color:#aaa">+${autoKeywords.length - 6}</span>` : "")
-    : `<span class="bsd-clean">${t("widget_no_keywords")}</span>`;
 
   const isPromoted = postData.feedContext?.toLowerCase().includes("profil") ||
                      postData.feedContext?.toLowerCase().includes("activité") ||
@@ -245,7 +240,6 @@ function createCollectWidget(postEl, postId, postData, autoScore, autoKeywords) 
     ${promotedHtml}
     <div class="bsd-auto-badge">
       <span>${autoLevel} ${t("widget_model_score", autoScore)}</span>
-      <div class="bsd-keywords">${kwHtml}</div>
     </div>
     <div class="bsd-slider-wrap">
       <label>${t("widget_manual_label")} <strong class="bsd-manual-val">${t("widget_manual_none")}</strong></label>
@@ -267,7 +261,7 @@ function createCollectWidget(postEl, postId, postData, autoScore, autoKeywords) 
   slider.addEventListener("input", () => { manualVal.textContent = slider.value + "/10"; });
 
   saveBtn.addEventListener("click", async () => {
-    await savePost(postId, postData, parseInt(slider.value), autoScore, autoKeywords);
+    await savePost(postId, postData, parseInt(slider.value), autoScore);
     savedMsg.style.display = "block";
     saveBtn.textContent = t("widget_saved");
     setTimeout(() => {
@@ -302,14 +296,14 @@ function processPost(postEl) {
 
   const data             = extractPostData(postEl);
   const postId           = generatePostId(postEl);
-  const { score, found } = computeModelScore(data);
+  const { score } = computeModelScore(data);
 
   log("✅", data.author || "(no author)", `[${score}/10]`, "—", data.text.slice(0, 50));
 
   if (MODE === "filter" && score >= THRESHOLD) {
     applyFilterMode(postEl, score);
   } else if (MODE === "collect") {
-    postEl.appendChild(createCollectWidget(postEl, postId, data, score, found));
+    postEl.appendChild(createCollectWidget(postEl, postId, data, score));
   }
 }
 

@@ -138,9 +138,9 @@ function buildNumFeatures(post) {
   const wordCount = text.split(/\s+/).length;
   const emojiCount = [...text].filter(c => c.codePointAt(0) > 0x1F000).length;
   return [
-    parseCount(post.likes), parseCount(post.comments), post.autoScore || 0,
+    parseCount(post.likes), parseCount(post.comments),
     text.length, wordCount, fcFlag(post.feedContext),
-    (post.autoKeywords || []).length, emojiCount / Math.max(wordCount, 1), headline.length,
+    emojiCount / Math.max(wordCount, 1), headline.length,
   ];
 }
 
