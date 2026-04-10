@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn Bullshit Detector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Évalue et collecte les posts LinkedIn bullshit pour entraîner un modèle de détection.",
   "permissions": [
     "storage",
@@ -16,6 +16,12 @@
       "js": ["rules.js", "content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["tfidf_vocab.json"],
+      "matches": ["https://www.linkedin.com/*"]
     }
   ],
   "action": {
