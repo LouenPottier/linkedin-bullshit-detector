@@ -5,7 +5,7 @@ const STORAGE_KEYS = ["bullshit_dataset", "bsd_mode", "bsd_threshold"];
 chrome.storage.local.get(STORAGE_KEYS, (result) => {
   const dataset   = result.bullshit_dataset || {};
   const mode      = result.bsd_mode || "filter";       // "filter" | "collect"
-  const threshold = result.bsd_threshold ?? 6;
+  const threshold = result.bsd_threshold ?? 7;
 
   // ── Mode toggle ──
   const btnFilter  = document.getElementById("btn-mode-filter");
