@@ -3,6 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <title>Bullshit Detector</title>
+  <!--
+    Inline script exécuté AVANT i18n.js :
+    lit bsd_lang depuis chrome.storage.local (async impossible ici),
+    donc on utilise sessionStorage comme pont synchrone.
+    popup.js écrit sessionStorage au tout premier chargement,
+    puis les rechargements suivants la lisent directement.
+  -->
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -12,21 +19,38 @@
       background: #fff;
       color: #222;
     }
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
     h1 {
       font-size: 15px;
       font-weight: 700;
-      margin-bottom: 4px;
       display: flex;
       align-items: center;
       gap: 6px;
     }
+    .lang-btn {
+      font-size: 10px;
+      font-weight: 600;
+      color: #aaa;
+      background: none;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+      width: auto;
+      letter-spacing: 0.03em;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .lang-btn:hover { color: #0a66c2; border-color: #0a66c2; opacity: 1; }
     .subtitle {
       font-size: 11px;
       color: #888;
       margin-bottom: 14px;
     }
-
-    /* ── Mode toggle ── */
     .mode-section { margin-bottom: 14px; }
     .mode-label {
       font-size: 11px;
@@ -57,8 +81,6 @@
     }
     .mode-btn.active { background: #0a66c2; color: #fff; }
     .mode-btn:first-child { border-right: 1.5px solid #e0e0e0; }
-
-    /* ── Threshold slider ── */
     .threshold-section {
       margin-bottom: 14px;
       padding: 10px 12px;
@@ -129,8 +151,6 @@
     }
     .toggle-switch input:checked + .toggle-track { background: #0a66c2; }
     .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
-
-    /* ── Stats ── */
     .stats-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -146,8 +166,6 @@
     .stat-card .lbl { font-size: 11px; color: #666; margin-top: 2px; }
     .stat-card.warn .val { color: #f59e0b; }
     .stat-card.danger .val { color: #ef4444; }
-
-    /* ── Actions ── */
     .actions { display: flex; flex-direction: column; gap: 7px; }
     button {
       width: 100%;
@@ -165,8 +183,6 @@
     .btn-train  { background: #7c3aed; color: #fff; }
     .btn-reset  { background: #f1f5f9; color: #475569; border: 1.5px solid #cbd5e1; margin-top: 4px; }
     .btn-clear  { background: #fee2e2; color: #b91c1c; }
-
-    /* ── Train section ── */
     .train-section {
       margin-top: 14px;
       padding: 10px 12px;
@@ -191,88 +207,60 @@
     }
     .train-badge.active { background: #d1fae5; color: #065f46; }
     .train-desc { font-size: 10.5px; color: #7c3aed; margin-bottom: 8px; opacity: 0.8; }
-    .train-progress {
-      display: none;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
-    }
+    .train-progress { display: none; align-items: center; gap: 8px; margin-bottom: 6px; }
     .train-progress.visible { display: flex; }
     .progress-bar-wrap {
-      flex: 1;
-      height: 5px;
-      background: #ddd6fe;
-      border-radius: 3px;
-      overflow: hidden;
+      flex: 1; height: 5px; background: #ddd6fe; border-radius: 3px; overflow: hidden;
     }
     .progress-bar {
-      height: 100%;
-      background: #7c3aed;
-      border-radius: 3px;
-      transition: width 0.1s;
-      width: 0%;
+      height: 100%; background: #7c3aed; border-radius: 3px;
+      transition: width 0.1s; width: 0%;
     }
     .progress-label {
-      font-size: 10px;
-      color: #7c3aed;
-      white-space: nowrap;
-      min-width: 60px;
-      text-align: right;
+      font-size: 10px; color: #7c3aed; white-space: nowrap;
+      min-width: 60px; text-align: right;
     }
     .train-result { font-size: 10.5px; color: #555; margin-top: 6px; display: none; }
     .train-result.visible { display: block; }
     .train-result .mae { font-weight: 700; color: #5b21b6; }
     .train-result .ts  { color: #aaa; font-size: 10px; }
-
-    .last-saved {
-      font-size: 10.5px;
-      color: #aaa;
-      margin-top: 10px;
-      text-align: center;
-    }
-    .empty {
-      text-align: center;
-      color: #aaa;
-      font-size: 12px;
-      padding: 20px 0;
-    }
-    .divider {
-      border: none;
-      border-top: 1px solid #f0f0f0;
-      margin: 12px 0;
-    }
+    .last-saved { font-size: 10.5px; color: #aaa; margin-top: 10px; text-align: center; }
+    .empty { text-align: center; color: #aaa; font-size: 12px; padding: 20px 0; }
+    .divider { border: none; border-top: 1px solid #f0f0f0; margin: 12px 0; }
   </style>
 </head>
 <body>
-  <h1>🛡️ Bullshit Detector</h1>
-  <p class="subtitle">LinkedIn — détection & collecte v0.5</p>
 
-  <!-- Mode toggle -->
+  <div class="header-row">
+    <h1>🛡️ Bullshit Detector</h1>
+    <button class="lang-btn" id="btn-lang">…</button>
+  </div>
+  <p class="subtitle" data-i18n="popup_subtitle"></p>
+
   <div class="mode-section">
-    <div class="mode-label">Mode</div>
+    <div class="mode-label" data-i18n="popup_mode_label"></div>
     <div class="mode-toggle">
-      <button class="mode-btn" id="btn-mode-filter">🚫 Filtre</button>
-      <button class="mode-btn" id="btn-mode-collect">🧪 Collecte</button>
+      <button class="mode-btn" id="btn-mode-filter" data-i18n="popup_mode_filter"></button>
+      <button class="mode-btn" id="btn-mode-collect" data-i18n="popup_mode_collect"></button>
     </div>
   </div>
 
-  <!-- Seuil (mode filtre uniquement) -->
   <div class="threshold-section" id="threshold-section">
     <div class="threshold-header">
-      <span class="threshold-label">Seuil de masquage</span>
+      <span class="threshold-label" data-i18n="popup_threshold_label"></span>
       <span class="threshold-val" id="threshold-val">7/10</span>
     </div>
     <input type="range" class="threshold-slider" id="threshold-slider" min="1" max="10" step="1" value="7">
-    <div class="threshold-hint">Posts avec un score ≥ au seuil seront masqués.</div>
+    <div class="threshold-hint" data-i18n="popup_threshold_hint"></div>
     <div class="sponsored-row">
-      <span class="sponsored-label">📢 Masquer les sponsorisés</span>
+      <span class="sponsored-label" data-i18n="popup_sponsored_label"></span>
       <label class="toggle-switch">
         <input type="checkbox" id="toggle-sponsored" checked>
         <span class="toggle-track"></span>
       </label>
     </div>
     <div class="sponsored-row">
-      <span class="sponsored-label">🔇 Masquage silencieux</span>
+      <span class="sponsored-label" data-i18n="popup_silent_label"></span>
       <label class="toggle-switch">
         <input type="checkbox" id="toggle-silent">
         <span class="toggle-track"></span>
@@ -282,48 +270,43 @@
 
   <hr class="divider">
 
-  <!-- Stats collecte -->
   <div id="main">
-    <div class="empty" id="empty-state">Aucun post sauvegardé pour l'instant.</div>
+    <div class="empty" id="empty-state" data-i18n="popup_empty"></div>
     <div id="loaded-state" style="display:none">
       <div class="stats-grid">
         <div class="stat-card">
           <div class="val" id="stat-total">0</div>
-          <div class="lbl">Posts sauvegardés</div>
+          <div class="lbl" data-i18n="popup_stat_total"></div>
         </div>
         <div class="stat-card warn">
           <div class="val" id="stat-avg">—</div>
-          <div class="lbl">Score moyen</div>
+          <div class="lbl" data-i18n="popup_stat_avg"></div>
         </div>
         <div class="stat-card danger">
           <div class="val" id="stat-high">0</div>
-          <div class="lbl">Score ≥ 7 (🔴)</div>
+          <div class="lbl" data-i18n="popup_stat_high"></div>
         </div>
       </div>
       <div class="actions">
-        <button class="btn-export" id="btn-export">⬇️ Exporter JSON</button>
-        <button class="btn-clear"  id="btn-clear">🗑️ Effacer les données</button>
+        <button class="btn-export" id="btn-export" data-i18n="popup_export"></button>
+        <button class="btn-clear"  id="btn-clear"  data-i18n="popup_clear"></button>
       </div>
       <p class="last-saved" id="last-saved"></p>
 
-      <!-- Section réentraînement -->
       <div class="train-section">
         <div class="train-header">
-          <span class="train-title">🔁 Modèle personnalisé</span>
-          <span class="train-badge" id="train-badge">Base</span>
+          <span class="train-title" data-i18n="train_title"></span>
+          <span class="train-badge" id="train-badge"></span>
         </div>
-        <div class="train-desc" id="train-desc">Réentraîne Ridge sur tes labels.</div>
-
+        <div class="train-desc" id="train-desc"></div>
         <div class="train-progress" id="train-progress">
           <div class="progress-bar-wrap">
             <div class="progress-bar" id="progress-bar"></div>
           </div>
-          <span class="progress-label" id="progress-label">0 / 500</span>
+          <span class="progress-label" id="progress-label"></span>
         </div>
-
-        <button class="btn-train" id="btn-train">🔁 Réentraîner le modèle</button>
-        <button class="btn-reset" id="btn-reset-model" style="display:none">↩️ Revenir au modèle de base</button>
-
+        <button class="btn-train" id="btn-train"></button>
+        <button class="btn-reset" id="btn-reset-model" style="display:none" data-i18n="train_reset"></button>
         <div class="train-result" id="train-result">
           MAE : <span class="mae" id="train-mae">—</span> pts
           &nbsp;·&nbsp;
@@ -333,6 +316,7 @@
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
