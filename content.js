@@ -166,8 +166,9 @@ async function savePost(postId, data, manualScore, autoScore, autoKeywords) {
   return new Promise((resolve) => {
     chrome.storage.local.get(["bullshit_dataset"], (result) => {
       const dataset = result.bullshit_dataset || {};
+      const { author, ...dataWithoutAuthor } = data;
       dataset[postId] = {
-        ...data, postId, manualScore, autoScore, autoKeywords,
+        ...dataWithoutAuthor, postId, manualScore, autoScore, autoKeywords,
         savedAt: new Date().toISOString(),
         pageUrl: window.location.href,
       };

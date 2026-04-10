@@ -63,12 +63,10 @@ chrome.storage.local.get(STORAGE_KEYS, (result) => {
     const scores  = posts.map(p => p.manualScore).filter(s => s !== undefined && s !== null);
     const avg     = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "—";
     const high    = scores.filter(s => s >= 7).length;
-    const authors = new Set(posts.map(p => p.author).filter(Boolean)).size;
 
-    document.getElementById("stat-total").textContent   = posts.length;
-    document.getElementById("stat-avg").textContent     = avg;
-    document.getElementById("stat-high").textContent    = high;
-    document.getElementById("stat-authors").textContent = authors;
+    document.getElementById("stat-total").textContent = posts.length;
+    document.getElementById("stat-avg").textContent   = avg;
+    document.getElementById("stat-high").textContent  = high;
 
     const dates = posts.map(p => p.savedAt).filter(Boolean).sort();
     if (dates.length > 0) {
