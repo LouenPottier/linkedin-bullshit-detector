@@ -1,5 +1,5 @@
 // ============================================================
-// LinkedIn Bullshit Detector — content.js (v0.4)
+// LinkedIn Bullshit Detector — content.js (v0.5)
 // ============================================================
 
 const DEBUG = true;
@@ -14,13 +14,21 @@ let MODEL          = null;
 
 // ============================================================
 // MODÈLE — TF-IDF + Ridge in-browser
+// Priorité 1 : bsd_custom_model (entraîné sur tes labels)
+// Priorité 2 : tfidf_vocab.json (modèle de base)
 // ============================================================
 
 async function loadModel() {
+  const stored = await chrome.storage.local.get(["bsd_custom_model"]);
+  if (stored.bsd_custom_model) {
+    MODEL = stored.bsd_custom_model;
+    log("🧠 Modèle personnalisé chargé —", MODEL.n_samples, "posts · MAE", MODEL.mae_train?.toFixed(2));
+    return;
+  }
   const url = chrome.runtime.getURL("tfidf_vocab.json");
   const res = await fetch(url);
   MODEL = await res.json();
-  log("🧠 Modèle chargé —", MODEL.n_tfidf_features, "TF-IDF +", MODEL.n_num_features, "numériques");
+  log("🧠 Modèle de base chargé —", MODEL.n_tfidf_features, "TF-IDF +", MODEL.n_num_features, "numériques");
 }
 
 function tokenize(text) {
@@ -291,7 +299,6 @@ function processPost(postEl) {
   if (postEl.dataset.bsdDone === "shown") return;
   if (postEl.dataset.bsdDone === "1") return;
 
-  // Vérifier que c'est bien un post (et pas une recommandation de contacts, etc.)
   const menuBtn = postEl.querySelector('button[aria-label^="Ouvrir le menu de commandes pour le post de"]');
   if (!menuBtn) return;
 
@@ -304,8 +311,8 @@ function processPost(postEl) {
     return;
   }
 
-  const data            = extractPostData(postEl);
-  const postId          = generatePostId(postEl);
+  const data             = extractPostData(postEl);
+  const postId           = generatePostId(postEl);
   const { score, found } = computeModelScore(data);
 
   log("✅", data.author || "(sans auteur)", `[${score}/10]`, "—", data.text.slice(0, 50));
@@ -352,6 +359,19 @@ chrome.runtime.onMessage.addListener((msg) => {
     log("🔄 Silencieux →", SILENT_HIDE);
     resetAllPosts();
   }
+  if (msg.type === "BSD_MODEL_UPDATED") {
+    MODEL = msg.model;
+    log("🧠 Modèle mis à jour —", MODEL.n_samples, "posts · MAE val", MODEL.mae_val?.toFixed(2));
+    resetAllPosts();
+  }
+  if (msg.type === "BSD_MODEL_RESET") {
+    const url = chrome.runtime.getURL("tfidf_vocab.json");
+    fetch(url).then(r => r.json()).then(m => {
+      MODEL = m;
+      log("🧠 Modèle de base rechargé");
+      resetAllPosts();
+    });
+  }
 });
 
 // ============================================================
@@ -376,10 +396,10 @@ const observer = new MutationObserver(scheduleScan);
 async function init() {
   log("🚀 BSD v0.5 démarré");
   const stored   = await chrome.storage.local.get(["bsd_mode", "bsd_threshold", "bsd_hide_sponsored", "bsd_silent_hide"]);
-  MODE           = stored.bsd_mode          || "filter";
-  THRESHOLD      = stored.bsd_threshold     ?? 7;
+  MODE           = stored.bsd_mode           || "filter";
+  THRESHOLD      = stored.bsd_threshold      ?? 7;
   HIDE_SPONSORED = stored.bsd_hide_sponsored ?? true;
-  SILENT_HIDE    = stored.bsd_silent_hide   ?? false;
+  SILENT_HIDE    = stored.bsd_silent_hide    ?? false;
   await loadModel();
   findAndProcessPosts();
   observer.observe(document.body, { childList: true, subtree: true });
