@@ -274,6 +274,11 @@ function createCollectWidget(postEl, postId, postData, autoScore, autoKeywords) 
 function processPost(postEl) {
   if (postEl.dataset.bsdDone === "shown") return;
   if (postEl.dataset.bsdDone === "1") return;
+
+  // Vérifier que c'est bien un post (et pas une recommandation de contacts, etc.)
+  const menuBtn = postEl.querySelector('button[aria-label^="Ouvrir le menu de commandes pour le post de"]');
+  if (!menuBtn) return;
+
   postEl.dataset.bsdDone = "1";
 
   const data            = extractPostData(postEl);
