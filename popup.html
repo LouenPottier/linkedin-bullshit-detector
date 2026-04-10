@@ -25,6 +25,96 @@
       color: #888;
       margin-bottom: 14px;
     }
+
+    /* ── Mode toggle ── */
+    .mode-section {
+      margin-bottom: 14px;
+    }
+    .mode-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .mode-toggle {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .mode-btn {
+      padding: 8px 0;
+      font-size: 12.5px;
+      font-weight: 500;
+      border: none;
+      background: #fff;
+      color: #888;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      width: auto;
+      border-radius: 0;
+    }
+    .mode-btn.active {
+      background: #0a66c2;
+      color: #fff;
+    }
+    .mode-btn:first-child {
+      border-right: 1.5px solid #e0e0e0;
+    }
+
+    /* ── Threshold slider (mode filtre uniquement) ── */
+    .threshold-section {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .threshold-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .threshold-label {
+      font-size: 12px;
+      color: #555;
+    }
+    .threshold-val {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0a66c2;
+    }
+    .threshold-slider {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
+      outline: none;
+      cursor: pointer;
+    }
+    .threshold-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #555;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .threshold-hint {
+      font-size: 10.5px;
+      color: #aaa;
+      margin-top: 5px;
+    }
+
+    /* ── Stats ── */
     .stats-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -49,6 +139,7 @@
     .stat-card.warn .val { color: #f59e0b; }
     .stat-card.danger .val { color: #ef4444; }
 
+    /* ── Actions ── */
     .actions {
       display: flex;
       flex-direction: column;
@@ -65,14 +156,9 @@
       transition: opacity 0.15s;
     }
     button:hover { opacity: 0.85; }
-    .btn-export {
-      background: #0a66c2;
-      color: #fff;
-    }
-    .btn-clear {
-      background: #fee2e2;
-      color: #b91c1c;
-    }
+    .btn-export { background: #0a66c2; color: #fff; }
+    .btn-clear  { background: #fee2e2; color: #b91c1c; }
+
     .last-saved {
       font-size: 10.5px;
       color: #aaa;
@@ -85,12 +171,39 @@
       font-size: 12px;
       padding: 20px 0;
     }
+    .divider {
+      border: none;
+      border-top: 1px solid #f0f0f0;
+      margin: 12px 0;
+    }
   </style>
 </head>
 <body>
-  <h1>🧪 Bullshit Detector</h1>
-  <p class="subtitle">Collecteur de données LinkedIn v0.1</p>
+  <h1>🛡️ Bullshit Detector</h1>
+  <p class="subtitle">LinkedIn — détection & collecte v0.3</p>
 
+  <!-- Mode toggle -->
+  <div class="mode-section">
+    <div class="mode-label">Mode</div>
+    <div class="mode-toggle">
+      <button class="mode-btn" id="btn-mode-filter">🚫 Filtre</button>
+      <button class="mode-btn" id="btn-mode-collect">🧪 Collecte</button>
+    </div>
+  </div>
+
+  <!-- Seuil (mode filtre uniquement) -->
+  <div class="threshold-section" id="threshold-section">
+    <div class="threshold-header">
+      <span class="threshold-label">Seuil de masquage</span>
+      <span class="threshold-val" id="threshold-val">6/10</span>
+    </div>
+    <input type="range" class="threshold-slider" id="threshold-slider" min="1" max="10" step="1" value="6">
+    <div class="threshold-hint">Posts avec un score ≥ au seuil seront masqués.</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- Stats collecte -->
   <div id="main">
     <div class="empty" id="empty-state">Aucun post sauvegardé pour l'instant.</div>
     <div id="loaded-state" style="display:none">
