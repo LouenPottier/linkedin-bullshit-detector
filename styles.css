@@ -1,0 +1,173 @@
+/* ============================================================
+   LinkedIn Bullshit Detector — styles.css
+   ============================================================ */
+
+.bsd-widget {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  margin: 8px 16px 4px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f8f8f8;
+  border: 1.5px solid #e0e0e0;
+  transition: border-color 0.2s;
+}
+
+.bsd-widget.bsd-suspect {
+  background: #fff7ed;
+  border-color: #fb923c;
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.15);
+}
+
+/* Auto-score badge */
+.bsd-auto-badge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bsd-auto-label {
+  font-size: 12px;
+  color: #555;
+  white-space: nowrap;
+}
+
+.bsd-auto-label strong {
+  color: #222;
+}
+
+.bsd-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: #888;
+}
+
+.bsd-keywords em {
+  font-style: normal;
+  background: #ffe4b8;
+  color: #b45309;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.bsd-clean {
+  color: #16a34a !important;
+  font-size: 11px;
+}
+
+/* Slider */
+.bsd-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bsd-slider-label {
+  font-size: 12px;
+  color: #555;
+}
+
+.bsd-slider-label strong {
+  color: #222;
+  font-size: 13px;
+}
+
+.bsd-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bsd-tick {
+  font-size: 11px;
+  color: #999;
+  min-width: 14px;
+  text-align: center;
+}
+
+.bsd-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
+  outline: none;
+  cursor: pointer;
+}
+
+.bsd-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #555;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.bsd-slider::-webkit-slider-thumb:hover {
+  border-color: #0a66c2;
+  transform: scale(1.15);
+}
+
+.bsd-save-btn {
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1.5px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.bsd-save-btn:hover {
+  background: #f0f4ff;
+  border-color: #0a66c2;
+  color: #0a66c2;
+}
+
+.bsd-promoted {
+  font-size: 11.5px;
+  color: #1e40af;
+  background: #dbeafe;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.bsd-promoted em {
+  font-style: italic;
+  color: #1d4ed8;
+}
+
+
+  font-size: 11.5px;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.bsd-headline-flag em {
+  font-style: italic;
+  color: #78350f;
+}
+
+
+  font-size: 11px;
+  color: #16a34a;
+  margin-top: 2px;
+}
