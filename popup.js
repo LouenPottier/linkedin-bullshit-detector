@@ -1,11 +1,13 @@
 // popup.js — v0.3
 
-const STORAGE_KEYS = ["bullshit_dataset", "bsd_mode", "bsd_threshold"];
+const STORAGE_KEYS = ["bullshit_dataset", "bsd_mode", "bsd_threshold", "bsd_hide_sponsored", "bsd_silent_hide"];
 
 chrome.storage.local.get(STORAGE_KEYS, (result) => {
-  const dataset   = result.bullshit_dataset || {};
-  const mode      = result.bsd_mode || "filter";       // "filter" | "collect"
-  const threshold = result.bsd_threshold ?? 7;
+  const dataset       = result.bullshit_dataset || {};
+  const mode          = result.bsd_mode || "filter";
+  const threshold     = result.bsd_threshold ?? 7;
+  const hideSponsored = result.bsd_hide_sponsored ?? true;
+  const silentHide    = result.bsd_silent_hide ?? false;
 
   // ── Mode toggle ──
   const btnFilter  = document.getElementById("btn-mode-filter");
@@ -49,6 +51,23 @@ chrome.storage.local.get(STORAGE_KEYS, (result) => {
   function getCurrentThreshold() {
     return parseInt(slider.value);
   }
+
+  // ── Toggle sponsorisés ──
+  const toggleSponsored = document.getElementById("toggle-sponsored");
+  toggleSponsored.checked = hideSponsored;
+  toggleSponsored.addEventListener("change", () => {
+    const v = toggleSponsored.checked;
+    chrome.storage.local.set({ bsd_hide_sponsored: v });
+    notifyContentScript({ type: "BSD_SPONSORED_CHANGED", hideSponsored: v });
+  });
+
+  const toggleSilent = document.getElementById("toggle-silent");
+  toggleSilent.checked = silentHide;
+  toggleSilent.addEventListener("change", () => {
+    const v = toggleSilent.checked;
+    chrome.storage.local.set({ bsd_silent_hide: v });
+    notifyContentScript({ type: "BSD_SILENT_CHANGED", silent: v });
+  });
 
   // ── Stats collecte ──
   const posts = Object.values(dataset);

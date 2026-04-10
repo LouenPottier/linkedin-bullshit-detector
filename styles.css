@@ -152,6 +152,44 @@
   color: #1d4ed8;
 }
 
+/* ── Placeholder (posts masqués) ── */
+.bsd-placeholder {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  margin: 8px 16px 4px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1.5px solid #fb923c;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #92400e;
+}
+
+.bsd-placeholder.bsd-placeholder-sponsored {
+  background: #f0f4ff;
+  border-color: #93c5fd;
+  color: #1e3a8a;
+}
+
+.bsd-show-btn {
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1.5px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+  width: auto;
+  flex-shrink: 0;
+}
+.bsd-show-btn:hover { opacity: 1; }
+
 
   font-size: 11.5px;
   color: #92400e;

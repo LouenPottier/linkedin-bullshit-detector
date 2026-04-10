@@ -6,9 +6,11 @@ const DEBUG = true;
 const log = (...args) => DEBUG && console.log("[BSD]", ...args);
 
 // ── État global ──
-let MODE      = "filter";   // "filter" | "collect"
-let THRESHOLD = 7;
-let MODEL     = null;
+let MODE           = "filter";   // "filter" | "collect"
+let THRESHOLD      = 7;
+let HIDE_SPONSORED = true;
+let SILENT_HIDE    = false;
+let MODEL          = null;
 
 // ============================================================
 // MODÈLE — TF-IDF + Ridge in-browser
@@ -100,6 +102,15 @@ function computeModelScore(postData) {
 }
 
 // ============================================================
+// DÉTECTION — posts sponsorisés
+// ============================================================
+
+function isSponsored(postEl) {
+  return [...postEl.querySelectorAll('p[componentkey], span[componentkey]')]
+    .some(el => el.textContent.trim() === 'Sponsorisé');
+}
+
+// ============================================================
 // EXTRACTION
 // ============================================================
 
@@ -186,18 +197,23 @@ async function savePost(postId, data, manualScore, autoScore, autoKeywords) {
 // MODE FILTRE — placeholder cliquable
 // ============================================================
 
-function applyFilterMode(postEl, score) {
+function applyFilterMode(postEl, score, sponsored = false) {
   postEl.querySelectorAll(':scope > *').forEach(el => {
     if (!el.classList.contains('bsd-placeholder')) el.style.display = "none";
   });
 
   if (postEl.querySelector('.bsd-placeholder')) return;
 
-  const level       = score >= 8 ? "🔴" : "🟠";
+  if (SILENT_HIDE) return;
+
+  const label = sponsored
+    ? "📢 Post sponsorisé masqué"
+    : `${score >= 8 ? "🔴" : "🟠"} Post masqué — score bullshit : <strong>${score}/10</strong>`;
+
   const placeholder = document.createElement("div");
-  placeholder.className = "bsd-placeholder";
+  placeholder.className = "bsd-placeholder" + (sponsored ? " bsd-placeholder-sponsored" : "");
   placeholder.innerHTML = `
-    <span>${level} Post masqué — score bullshit : <strong>${score}/10</strong></span>
+    <span>${label}</span>
     <button class="bsd-show-btn">Afficher quand même</button>
   `;
 
@@ -281,6 +297,13 @@ function processPost(postEl) {
 
   postEl.dataset.bsdDone = "1";
 
+  // ── Posts sponsorisés ──
+  if (MODE === "filter" && HIDE_SPONSORED && isSponsored(postEl)) {
+    log("📢 Sponsorisé masqué");
+    applyFilterMode(postEl, 0, true);
+    return;
+  }
+
   const data            = extractPostData(postEl);
   const postId          = generatePostId(postEl);
   const { score, found } = computeModelScore(data);
@@ -319,6 +342,16 @@ chrome.runtime.onMessage.addListener((msg) => {
     log("🔄 Seuil →", THRESHOLD);
     resetAllPosts();
   }
+  if (msg.type === "BSD_SPONSORED_CHANGED") {
+    HIDE_SPONSORED = msg.hideSponsored;
+    log("🔄 Sponsorisés →", HIDE_SPONSORED ? "masqués" : "visibles");
+    resetAllPosts();
+  }
+  if (msg.type === "BSD_SILENT_CHANGED") {
+    SILENT_HIDE = msg.silent;
+    log("🔄 Silencieux →", SILENT_HIDE);
+    resetAllPosts();
+  }
 });
 
 // ============================================================
@@ -341,10 +374,12 @@ function scheduleScan() {
 const observer = new MutationObserver(scheduleScan);
 
 async function init() {
-  log("🚀 BSD v0.4 démarré");
-  const stored  = await chrome.storage.local.get(["bsd_mode", "bsd_threshold"]);
-  MODE          = stored.bsd_mode      || "filter";
-  THRESHOLD     = stored.bsd_threshold ?? 6;
+  log("🚀 BSD v0.5 démarré");
+  const stored   = await chrome.storage.local.get(["bsd_mode", "bsd_threshold", "bsd_hide_sponsored", "bsd_silent_hide"]);
+  MODE           = stored.bsd_mode          || "filter";
+  THRESHOLD      = stored.bsd_threshold     ?? 7;
+  HIDE_SPONSORED = stored.bsd_hide_sponsored ?? true;
+  SILENT_HIDE    = stored.bsd_silent_hide   ?? false;
   await loadModel();
   findAndProcessPosts();
   observer.observe(document.body, { childList: true, subtree: true });
