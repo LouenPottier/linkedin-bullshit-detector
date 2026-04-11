@@ -11,21 +11,29 @@ function applyI18n() {
 }
 
 // ============================================================
-// Lang toggle
-// Persistance : chrome.storage.local (survit aux fermetures)
-// Pont synchrone : sessionStorage (lu par i18n.js au chargement)
+// Lang toggle FR | EN
 // ============================================================
 
 function initLangToggle() {
-  const btn = document.getElementById("btn-lang");
-  btn.textContent = LANG === "fr" ? "EN" : "FR";
-  btn.addEventListener("click", () => {
-    const next = LANG === "fr" ? "en" : "fr";
-    sessionStorage.setItem("bsd_lang", next);
-    chrome.storage.local.set({ bsd_lang: next });
-    notifyContentScript({ type: "BSD_LANG_CHANGED", lang: next });
+  const btnFr = document.getElementById("btn-lang-fr");
+  const btnEn = document.getElementById("btn-lang-en");
+
+  function updateActive() {
+    btnFr.classList.toggle("active", LANG === "fr");
+    btnEn.classList.toggle("active", LANG === "en");
+  }
+  updateActive();
+
+  function switchTo(lang) {
+    if (lang === LANG) return;
+    sessionStorage.setItem("bsd_lang", lang);
+    chrome.storage.local.set({ bsd_lang: lang });
+    notifyContentScript({ type: "BSD_LANG_CHANGED", lang });
     window.location.reload();
-  });
+  }
+
+  btnFr.addEventListener("click", () => switchTo("fr"));
+  btnEn.addEventListener("click", () => switchTo("en"));
 }
 
 // Au tout premier chargement du popup (sessionStorage vide),
@@ -33,7 +41,7 @@ function initLangToggle() {
 // initialise sessionStorage, puis on recharge si nécessaire.
 async function seedLangFromStorage() {
   const inSession = sessionStorage.getItem("bsd_lang");
-  if (inSession) return; // déjà initialisé, rien à faire
+  if (inSession) return;
 
   const stored = await new Promise(resolve =>
     chrome.storage.local.get(["bsd_lang"], resolve)
@@ -41,13 +49,11 @@ async function seedLangFromStorage() {
   const saved = stored.bsd_lang;
   if (saved === "fr" || saved === "en") {
     sessionStorage.setItem("bsd_lang", saved);
-    // Si la langue stockée diffère de celle détectée par i18n.js, recharger
     if (saved !== LANG) {
       window.location.reload();
-      return; // ne pas continuer l'init
+      return;
     }
   }
-  // Pas de préférence stockée : sauvegarder la langue actuelle
   chrome.storage.local.set({ bsd_lang: LANG });
 }
 
@@ -57,7 +63,7 @@ async function seedLangFromStorage() {
 
 const STORAGE_KEYS = [
   "bullshit_dataset", "bsd_mode", "bsd_threshold",
-  "bsd_hide_sponsored", "bsd_silent_hide", "bsd_custom_model"
+  "bsd_hide_sponsored", "bsd_silent_hide", "bsd_custom_model", "bsd_stats"
 ];
 const MIN_POSTS_TO_TRAIN = 20;
 
@@ -275,17 +281,49 @@ async function trainModel(posts, vocabData, onProgress) {
 }
 
 // ============================================================
+// QUALITÉ MODÈLE — affichage dans la stat card
+// ============================================================
+
+// Formule de pondération (même que content.js)
+function computeW(maeCustom, maeBase, n) {
+  const nScale = 20, k = 4;
+  const wN   = 1 - Math.exp(-n / nScale);
+  const wMae = 0.1 + 0.9 / (1 + Math.exp(-k * (maeBase - maeCustom)));
+  return wN * wMae;
+}
+
+function personalizationLabel(w) {
+  if (w === null || w === undefined) return { text: t("model_quality_none"),       cls: "quality-none"      };
+  if (w < 0.10)                      return { text: t("model_quality_very_low"),   cls: "quality-none"      };
+  if (w < 0.30)                      return { text: t("model_quality_low"),        cls: "quality-average"   };
+  if (w < 0.50)                      return { text: t("model_quality_medium"),     cls: "quality-good"      };
+  if (w < 0.75)                      return { text: t("model_quality_high"),       cls: "quality-very-good" };
+  if (w < 0.90)                      return { text: t("model_quality_very_high"),  cls: "quality-excellent" };
+  return                              { text: t("model_quality_optimal"),           cls: "quality-excellent" };
+}
+
+function updatePersonalizationStat(w, noData = false) {
+  const el = document.getElementById("stat-model-quality");
+  if (!el) return;
+  el.className = "val";
+  if (noData) {
+    el.textContent = t("model_quality_no_data");
+    el.classList.add("quality-no-data");
+    return;
+  }
+  const { text, cls } = personalizationLabel(w);
+  el.textContent = text;
+  el.classList.add(cls);
+}
+
+// ============================================================
 // POPUP — initialisation
 // ============================================================
 
 applyI18n();
 initLangToggle();
 
-// Seed la langue depuis chrome.storage.local si première ouverture
-seedLangFromStorage().then(() => {
-  // seedLangFromStorage recharge la page si nécessaire,
-  // donc si on arrive ici, la langue est déjà correcte.
-});
+seedLangFromStorage().then(() => {});
 
 chrome.storage.local.get(STORAGE_KEYS, async (result) => {
   const dataset       = result.bullshit_dataset || {};
@@ -295,6 +333,30 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
   const silentHide    = result.bsd_silent_hide ?? false;
   const customModel   = result.bsd_custom_model || null;
 
+  // ── Stats filtre ──
+  const stats   = result.bsd_stats || {};
+  const today   = (function() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  })();
+  const isToday = stats.today_date === today;
+  const todayBs        = isToday ? (stats.today_bs        || 0) : 0;
+  const todaySponsored = isToday ? (stats.today_sponsored || 0) : 0;
+  const totalHidden    = (stats.total_bs || 0) + (stats.total_sponsored || 0);
+  const scrollRawM = (stats.total_scroll_px || 0) / (96 * 39.37);
+  const scrollStr  = scrollRawM >= 1000
+    ? (scrollRawM / 1000).toFixed(2) + " km"
+    : scrollRawM.toFixed(1) + " m";
+
+  const elTodayBs        = document.getElementById("fstat-today-bs");
+  const elTodaySponsored = document.getElementById("fstat-today-sponsored");
+  const elTotal          = document.getElementById("fstat-total");
+  const elScroll         = document.getElementById("fstat-scroll");
+  if (elTodayBs)        elTodayBs.textContent        = todayBs;
+  if (elTodaySponsored) elTodaySponsored.textContent  = todaySponsored;
+  if (elTotal)          elTotal.textContent           = totalHidden;
+  if (elScroll)         elScroll.textContent          = scrollStr;
+
   const btnFilter        = document.getElementById("btn-mode-filter");
   const btnCollect       = document.getElementById("btn-mode-collect");
   const thresholdSection = document.getElementById("threshold-section");
@@ -303,6 +365,13 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
     btnFilter.classList.toggle("active",  m === "filter");
     btnCollect.classList.toggle("active", m === "collect");
     thresholdSection.style.display = m === "filter" ? "block" : "none";
+    const filterStatsEl = document.getElementById("filter-stats");
+    if (filterStatsEl) filterStatsEl.style.display = m === "filter" ? "block" : "none";
+    // La grille collecte ne s'affiche qu'en mode collecte
+    const loadedEl = document.getElementById("loaded-state");
+    if (loadedEl) loadedEl.style.display = m === "collect" ? "" : "none";
+    const actionsEl = document.getElementById("actions-secondary");
+    if (actionsEl) actionsEl.style.display = m === "collect" ? "flex" : "none";
   }
   applyMode(mode);
 
@@ -345,16 +414,26 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
     notifyContentScript({ type: "BSD_SILENT_CHANGED", silent: v });
   });
 
+  // Sync toggle if silent was enabled from a placeholder button
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.bsd_silent_hide) {
+      toggleSilent.checked = changes.bsd_silent_hide.newValue;
+    }
+  });
+
   const posts = Object.values(dataset);
 
   if (posts.length === 0) {
     document.getElementById("empty-state").style.display  = "block";
     document.getElementById("loaded-state").style.display = "none";
+    // Afficher quand même le message dans la stat card si elle était visible
+    // → rien à faire ici, loaded-state est caché
     return;
   }
 
   document.getElementById("empty-state").style.display  = "none";
-  document.getElementById("loaded-state").style.display = "block";
+  // loaded-state visible seulement en mode collecte (applyMode le gère aussi)
+  document.getElementById("loaded-state").style.display = mode === "collect" ? "block" : "none";
 
   const scores = posts.map(p => p.manualScore).filter(s => s !== undefined && s !== null);
   const avg    = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "—";
@@ -364,16 +443,45 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
   document.getElementById("stat-avg").textContent   = avg;
   document.getElementById("stat-high").textContent  = high;
 
+  // Qualité du modèle — sera calculée par showBaseModelState() ou showCustomModelState()
+  // appelés juste après la définition de ces fonctions ci-dessous
+
   const locale = LANG === "fr" ? "fr-FR" : "en-GB";
-  const dates  = posts.map(p => p.savedAt).filter(Boolean).sort();
-  if (dates.length > 0) {
-    const last = new Date(dates[dates.length - 1]);
-    document.getElementById("last-saved").textContent = t(
-      "popup_last_saved",
-      last.toLocaleDateString(locale),
-      last.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })
-    );
-  }
+
+  document.getElementById("btn-import").addEventListener("click", () => {
+    document.getElementById("import-file").click();
+  });
+
+  document.getElementById("import-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target.result);
+        // Accepte tableau ou objet {postId: post}
+        const incoming = Array.isArray(raw) ? raw : Object.values(raw);
+        if (!incoming.length || typeof incoming[0] !== "object") throw new Error();
+        if (!confirm(t("popup_import_confirm", incoming.length, posts.length))) return;
+        chrome.storage.local.get(["bullshit_dataset"], (result) => {
+          const dataset = result.bullshit_dataset || {};
+          let added = 0;
+          for (const post of incoming) {
+            const id = post.postId || post.id;
+            if (!id) continue;
+            if (!dataset[id]) { dataset[id] = post; added++; }
+          }
+          chrome.storage.local.set({ bullshit_dataset: dataset }, () => {
+            window.location.reload();
+          });
+        });
+      } catch {
+        alert(t("popup_import_error"));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // reset pour permettre re-import du même fichier
+  });
 
   document.getElementById("btn-export").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify(posts, null, 2)], { type: "application/json" });
@@ -402,17 +510,62 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
   const trainMAE      = document.getElementById("train-mae");
   const trainTS       = document.getElementById("train-ts");
 
+  function computeAndShowBaseMae() {
+    const labelledPosts = posts.filter(p => p.manualScore !== null && p.manualScore !== undefined);
+    if (labelledPosts.length === 0) { updatePersonalizationStat(null); return; }
+    loadVocab().then(vocabData => {
+      const vocab       = vocabData.vocabulary;
+      const nTfidf      = vocabData.n_tfidf_features;
+      const idf         = vocabData.idf;
+      const coef        = vocabData.ridge_coef;
+      const intercept   = vocabData.ridge_intercept;
+      const scalerMean  = vocabData.scaler_mean;
+      const scalerScale = vocabData.scaler_scale;
+      let maeSum = 0;
+      for (const post of labelledPosts) {
+        const combined  = `${post.text || ""} ${post.headline || ""}`.trim();
+        const tfidfVec  = tfidfVector(combined, vocab, idf, nTfidf);
+        const numRaw    = buildNumFeatures(post);
+        const numScaled = numRaw.map((v, i) => (v - scalerMean[i]) / scalerScale[i]);
+        let pred = intercept;
+        for (let i = 0; i < nTfidf; i++) pred += tfidfVec[i] * coef[i];
+        for (let i = 0; i < numScaled.length; i++) pred += numScaled[i] * coef[nTfidf + i];
+        pred = Math.max(0, Math.min(10, pred));
+        maeSum += Math.abs(pred - post.manualScore);
+      }
+      const maeBase = maeSum / labelledPosts.length;
+      chrome.storage.local.set({ bsd_mae_base: maeBase });
+      updatePersonalizationStat(null); // pas de modèle custom → personnalisation nulle
+    }).catch(e => {
+      console.error("[BSD] Base MAE computation failed:", e);
+      updatePersonalizationStat(null);
+    });
+  }
+
   function showCustomModelState(model) {
     const mae = (model.mae_val ?? model.mae_train ?? 0).toFixed(2);
     const ts  = new Date(model.trained_at);
+    const tsStr = ts.toLocaleDateString(locale) + " " +
+      ts.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
     trainBadge.textContent = t("train_badge_custom");
     trainBadge.classList.add("active");
-    trainDesc.textContent = t("train_desc_custom", model.n_samples, mae);
+    trainDesc.textContent = t("train_desc_custom", model.n_samples);
     trainMAE.textContent  = mae;
-    trainTS.textContent   = ts.toLocaleDateString(locale) + " " +
-      ts.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+    trainTS.textContent   = tsStr;
+    // Ligne fusionnée : MAE · date
+    trainResult.innerHTML = `MAE : <span class="mae">${mae} pts</span> &nbsp;·&nbsp; <span class="ts">${tsStr}</span>`;
     trainResult.classList.add("visible");
     btnReset.style.display = "block";
+    chrome.storage.local.get(["bsd_mae_base"], (r) => {
+      const maeCustom = model.mae_val ?? model.mae_train ?? null;
+      const maeBase   = r.bsd_mae_base ?? null;
+      const n         = model.n_samples ?? 0;
+      if (maeCustom !== null && maeBase !== null) {
+        updatePersonalizationStat(computeW(maeCustom, maeBase, n));
+      } else {
+        updatePersonalizationStat(null);
+      }
+    });
   }
 
   function showBaseModelState() {
@@ -421,6 +574,8 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
     trainDesc.textContent = t("train_desc_base");
     trainResult.classList.remove("visible");
     btnReset.style.display = "none";
+    updatePersonalizationStat(null); // pas de modèle custom → personnalisation nulle
+    computeAndShowBaseMae(); // recalcule et stocke mae_base
   }
 
   btnTrain.textContent = t("train_btn");
@@ -435,7 +590,6 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
 
   btnTrain.addEventListener("click", async () => {
     if (labelledCount < MIN_POSTS_TO_TRAIN) return;
-    if (labelledCount < 50 && !confirm(t("train_warn_few", labelledCount))) return;
 
     btnTrain.disabled = true;
     btnReset.style.display = "none";

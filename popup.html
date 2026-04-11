@@ -3,13 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>Bullshit Detector</title>
-  <!--
-    Inline script exécuté AVANT i18n.js :
-    lit bsd_lang depuis chrome.storage.local (async impossible ici),
-    donc on utilise sessionStorage comme pont synchrone.
-    popup.js écrit sessionStorage au tout premier chargement,
-    puis les rechargements suivants la lisent directement.
-  -->
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -32,20 +25,36 @@
       align-items: center;
       gap: 6px;
     }
-    .lang-btn {
+    /* Lang toggle — FR | EN avec langue active en bleu */
+    .lang-toggle {
+      display: flex;
+      align-items: center;
+      border: 1px solid #e0e0e0;
+      border-radius: 5px;
+      overflow: hidden;
       font-size: 10px;
       font-weight: 600;
+    }
+    .lang-toggle-part {
+      padding: 3px 7px;
+      cursor: pointer;
       color: #aaa;
       background: none;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      padding: 2px 6px;
-      cursor: pointer;
-      width: auto;
+      border: none;
       letter-spacing: 0.03em;
-      transition: color 0.15s, border-color 0.15s;
+      transition: color 0.15s, background 0.15s;
+      line-height: 1;
     }
-    .lang-btn:hover { color: #0a66c2; border-color: #0a66c2; opacity: 1; }
+    .lang-toggle-part.active {
+      color: #0a66c2;
+      background: #eff6ff;
+    }
+    .lang-toggle-sep {
+      color: #e0e0e0;
+      font-size: 11px;
+      pointer-events: none;
+      padding: 0 1px;
+    }
     .subtitle {
       font-size: 11px;
       color: #888;
@@ -151,6 +160,7 @@
     }
     .toggle-switch input:checked + .toggle-track { background: #0a66c2; }
     .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); }
+    /* Stats 2×2 */
     .stats-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -161,28 +171,78 @@
       background: #f5f5f5;
       border-radius: 8px;
       padding: 10px 12px;
+      display: flex;
+      flex-direction: column-reverse;
     }
     .stat-card .val { font-size: 22px; font-weight: 700; color: #0a66c2; }
-    .stat-card .lbl { font-size: 11px; color: #666; margin-top: 2px; }
+    .stat-card .lbl { font-size: 11px; color: #666; margin-bottom: 2px; }
     .stat-card.warn .val { color: #f59e0b; }
     .stat-card.danger .val { color: #ef4444; }
-    .actions { display: flex; flex-direction: column; gap: 7px; }
-    button {
-      width: 100%;
-      padding: 9px 12px;
-      border-radius: 7px;
-      border: none;
-      font-size: 13px;
+    /* Qualité modèle */
+    .stat-card.model-quality .val {
+      font-size: 14px;
+      font-weight: 700;
+      color: #7c3aed;
+      margin-top: 2px;
+    }
+    .stat-card.model-quality .val.quality-excellent { color: #059669; }
+    .stat-card.model-quality .val.quality-very-good { color: #0a66c2; }
+    .stat-card.model-quality .val.quality-good      { color: #0a66c2; }
+    .stat-card.model-quality .val.quality-average   { color: #f59e0b; }
+    .stat-card.model-quality .val.quality-poor      { color: #ef4444; }
+    .stat-card.model-quality .val.quality-none      { color: #666; font-weight: 500; }
+    .stat-card.model-quality .val.quality-no-data   { color: #aaa; font-size: 11px; font-weight: 500; font-style: italic; }
+    /* Actions export/clear — au bas, discret */
+    .actions-secondary {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .actions-row {
+      display: flex;
+      gap: 5px;
+    }
+    .actions-row .btn-export-sm {
+      flex: 1;
+    }
+    .btn-export-sm {
+      background: none;
+      border: 1px solid #d1d5db;
+      color: #555;
+      font-size: 11.5px;
+      padding: 6px 10px;
+      border-radius: 6px;
       cursor: pointer;
-      font-weight: 500;
+      width: 100%;
+      text-align: left;
+      transition: background 0.15s;
+    }
+    .btn-export-sm:hover { background: #f5f5f5; }
+    .btn-clear-sm {
+      background: none;
+      border: 1px solid #fca5a5;
+      color: #dc2626;
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      text-align: center;
+      opacity: 0.75;
       transition: opacity 0.15s;
     }
-    button:hover { opacity: 0.85; }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-export { background: #0a66c2; color: #fff; }
-    .btn-train  { background: #7c3aed; color: #fff; }
-    .btn-reset  { background: #f1f5f9; color: #475569; border: 1.5px solid #cbd5e1; margin-top: 4px; }
-    .btn-clear  { background: #fee2e2; color: #b91c1c; }
+    .btn-clear-sm:hover { opacity: 1; }
+    .dev-note {
+      font-size: 10px;
+      color: #bbb;
+      margin-top: 8px;
+      text-align: center;
+      font-style: italic;
+    }
+    /* Train section */
     .train-section {
       margin-top: 14px;
       padding: 10px 12px;
@@ -224,6 +284,20 @@
     .train-result.visible { display: block; }
     .train-result .mae { font-weight: 700; color: #5b21b6; }
     .train-result .ts  { color: #aaa; font-size: 10px; }
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 7px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-train  { background: #7c3aed; color: #fff; }
+    .btn-reset  { background: #f1f5f9; color: #475569; border: 1.5px solid #cbd5e1; margin-top: 4px; }
     .last-saved { font-size: 10.5px; color: #aaa; margin-top: 10px; text-align: center; }
     .empty { text-align: center; color: #aaa; font-size: 12px; padding: 20px 0; }
     .divider { border: none; border-top: 1px solid #f0f0f0; margin: 12px 0; }
@@ -233,7 +307,12 @@
 
   <div class="header-row">
     <h1>🛡️ Bullshit Detector</h1>
-    <button class="lang-btn" id="btn-lang">…</button>
+    <!-- Nouveau toggle FR | EN -->
+    <div class="lang-toggle">
+      <button class="lang-toggle-part" id="btn-lang-fr">FR</button>
+      <span class="lang-toggle-sep">|</span>
+      <button class="lang-toggle-part" id="btn-lang-en">EN</button>
+    </div>
   </div>
   <p class="subtitle" data-i18n="popup_subtitle"></p>
 
@@ -242,6 +321,29 @@
     <div class="mode-toggle">
       <button class="mode-btn" id="btn-mode-filter" data-i18n="popup_mode_filter"></button>
       <button class="mode-btn" id="btn-mode-collect" data-i18n="popup_mode_collect"></button>
+    </div>
+  </div>
+
+  <!-- Grille stats — mode filtre uniquement -->
+  <div id="filter-stats" style="display:none">
+    <hr class="divider">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="val" id="fstat-today-bs">0</div>
+        <div class="lbl" data-i18n="filter_stat_today_bs"></div>
+      </div>
+      <div class="stat-card warn">
+        <div class="val" id="fstat-today-sponsored">0</div>
+        <div class="lbl" data-i18n="filter_stat_today_sponsored"></div>
+      </div>
+      <div class="stat-card danger">
+        <div class="val" id="fstat-total">0</div>
+        <div class="lbl" data-i18n="filter_stat_total"></div>
+      </div>
+      <div class="stat-card">
+        <div class="val" id="fstat-scroll">0 m</div>
+        <div class="lbl" data-i18n="filter_stat_scroll"></div>
+      </div>
     </div>
   </div>
 
@@ -286,12 +388,12 @@
           <div class="val" id="stat-high">0</div>
           <div class="lbl" data-i18n="popup_stat_high"></div>
         </div>
+        <div class="stat-card model-quality">
+          <div class="val quality-none" id="stat-model-quality"></div>
+          <div class="lbl" data-i18n="popup_stat_model"></div>
+        </div>
       </div>
-      <div class="actions">
-        <button class="btn-export" id="btn-export" data-i18n="popup_export"></button>
-        <button class="btn-clear"  id="btn-clear"  data-i18n="popup_clear"></button>
-      </div>
-      <p class="last-saved" id="last-saved"></p>
+
 
       <div class="train-section">
         <div class="train-header">
@@ -312,6 +414,16 @@
           &nbsp;·&nbsp;
           <span class="ts" id="train-ts"></span>
         </div>
+      </div>
+
+      <!-- Export / Clear — discrets, tout en bas, visibles en mode collecte uniquement -->
+      <div class="actions-secondary" id="actions-secondary">
+        <div class="actions-row">
+          <button class="btn-export-sm" id="btn-import" data-i18n="popup_import"></button>
+          <input type="file" id="import-file" accept=".json" style="display:none">
+          <button class="btn-export-sm" id="btn-export" data-i18n="popup_export"></button>
+        </div>
+        <button class="btn-clear-sm"  id="btn-clear"  data-i18n="popup_clear"></button>
       </div>
     </div>
   </div>

@@ -10,34 +10,53 @@ let MODE           = "filter";
 let THRESHOLD      = 7;
 let HIDE_SPONSORED = true;
 let SILENT_HIDE    = false;
-let MODEL          = null;
+let BASE_MODEL     = null;   // toujours tfidf_vocab.json
+let CUSTOM_MODEL   = null;   // modèle entraîné par l'utilisateur (ou null)
+let MAE_BASE       = null;   // stockée par le popup
+let N_LABELLED     = 0;      // nombre de posts labellisés
 
 // ============================================================
 // MODÈLE
 // ============================================================
 
+function computeW(maeCustom, maeBase, n) {
+  const nScale = 20, k = 4;
+  const wN   = 1 - Math.exp(-n / nScale);
+  const wMae = 0.1 + 0.9 / (1 + Math.exp(-k * (maeBase - maeCustom)));
+  return wN * wMae;
+}
+
 async function loadModel() {
-  const stored = await chrome.storage.local.get(["bsd_custom_model"]);
-  if (stored.bsd_custom_model) {
-    MODEL = stored.bsd_custom_model;
-    log("🧠 Custom model loaded —", MODEL.n_samples, "posts · MAE", MODEL.mae_train?.toFixed(2));
-    return;
-  }
+  const stored = await chrome.storage.local.get([
+    "bsd_custom_model", "bsd_mae_base", "bullshit_dataset"
+  ]);
+
+  // Toujours charger le modèle de base
   const url = chrome.runtime.getURL("tfidf_vocab.json");
   const res = await fetch(url);
-  MODEL = await res.json();
-  log("🧠 Base model loaded —", MODEL.n_tfidf_features, "TF-IDF +", MODEL.n_num_features, "numeric");
+  BASE_MODEL = await res.json();
+
+  CUSTOM_MODEL = stored.bsd_custom_model || null;
+  MAE_BASE     = stored.bsd_mae_base     || null;
+  N_LABELLED   = Object.values(stored.bullshit_dataset || {})
+    .filter(p => p.manualScore !== null && p.manualScore !== undefined).length;
+
+  if (CUSTOM_MODEL) {
+    log("🧠 Custom model loaded —", CUSTOM_MODEL.n_samples, "posts · MAE", CUSTOM_MODEL.mae_val?.toFixed(2));
+  }
+  log("🧠 Base model loaded —", BASE_MODEL.n_tfidf_features, "TF-IDF features");
+  log("🧠 MAE base =", MAE_BASE, "· n_labelled =", N_LABELLED);
 }
 
 function tokenize(text) {
   return (text || "").toLowerCase().match(/[a-z0-9\u00c0-\u017e]+/g) || [];
 }
 
-function tfidfVector(text) {
+function tfidfVectorFromModel(text, model) {
   const tokens = tokenize(text);
-  const vocab  = MODEL.vocabulary;
-  const idf    = MODEL.idf;
-  const n      = MODEL.n_tfidf_features;
+  const vocab  = model.vocabulary;
+  const idf    = model.idf;
+  const n      = model.n_tfidf_features;
   const tf     = new Float64Array(n);
   for (const tok of tokens) { if (tok in vocab) tf[vocab[tok]] += 1; }
   for (let i = 0; i < tokens.length - 1; i++) {
@@ -53,8 +72,23 @@ function tfidfVector(text) {
   return tf;
 }
 
-function scaleNumFeatures(raw) {
-  return raw.map((v, i) => (v - MODEL.scaler_mean[i]) / MODEL.scaler_scale[i]);
+function scoreFromModel(postData, model) {
+  const combined  = `${postData.text || ""} ${postData.headline || ""}`.trim();
+  const tfidfVec  = tfidfVectorFromModel(combined, model);
+  const textWords = (postData.text || "").split(/\s+/);
+  const wordCount = textWords.length;
+  const emojiCount = [...(postData.text || "")].filter(c => c.codePointAt(0) > 0x1F000).length;
+  const rawNum = [
+    parseCount(postData.likes), parseCount(postData.comments),
+    (postData.text || "").length, wordCount, feedContextFlag(postData.feedContext),
+    emojiCount / Math.max(wordCount, 1), (postData.headline || "").length,
+  ];
+  const scaledNum = rawNum.map((v, i) => (v - model.scaler_mean[i]) / model.scaler_scale[i]);
+  const coef = model.ridge_coef;
+  let score  = model.ridge_intercept;
+  for (let i = 0; i < model.n_tfidf_features; i++) score += tfidfVec[i] * coef[i];
+  for (let i = 0; i < model.n_num_features; i++)   score += scaledNum[i] * coef[model.n_tfidf_features + i];
+  return Math.max(0, Math.min(10, score));
 }
 
 function parseCount(s) {
@@ -67,26 +101,20 @@ function feedContextFlag(fc) {
 }
 
 function computeModelScore(postData) {
-  if (!MODEL) return { score: 0 };
-  const combined = `${postData.text || ""} ${postData.headline || ""}`.trim();
-  const tfidfVec = tfidfVector(combined);
+  if (!BASE_MODEL) return { score: 0 };
 
-  const textWords  = (postData.text || "").split(/\s+/);
-  const wordCount  = textWords.length;
-  const emojiCount = [...(postData.text || "")].filter(c => c.codePointAt(0) > 0x1F000).length;
-  const rawNum = [
-    parseCount(postData.likes), parseCount(postData.comments),
-    (postData.text || "").length, wordCount, feedContextFlag(postData.feedContext),
-    emojiCount / Math.max(wordCount, 1), (postData.headline || "").length,
-  ];
-  const scaledNum = scaleNumFeatures(rawNum);
-  const coef = MODEL.ridge_coef;
-  let score  = MODEL.ridge_intercept;
-  for (let i = 0; i < MODEL.n_tfidf_features; i++) score += tfidfVec[i] * coef[i];
-  for (let i = 0; i < MODEL.n_num_features; i++)   score += scaledNum[i] * coef[MODEL.n_tfidf_features + i];
-  score = Math.round(Math.max(0, Math.min(10, score)));
+  const scoreBase = scoreFromModel(postData, BASE_MODEL);
 
-  return { score };
+  if (!CUSTOM_MODEL || MAE_BASE === null) {
+    return { score: Math.round(scoreBase) };
+  }
+
+  const scoreCustom = scoreFromModel(postData, CUSTOM_MODEL);
+  const maeCustom   = CUSTOM_MODEL.mae_val ?? CUSTOM_MODEL.mae_train ?? MAE_BASE;
+  const w           = computeW(maeCustom, MAE_BASE, N_LABELLED);
+  const blended     = w * scoreCustom + (1 - w) * scoreBase;
+
+  return { score: Math.round(blended) };
 }
 
 // ============================================================
@@ -191,27 +219,88 @@ async function savePost(postId, data, manualScore, autoScore) {
   });
 }
 
+async function getSavedScore(postId) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["bullshit_dataset"], (result) => {
+      const dataset = result.bullshit_dataset || {};
+      const entry = dataset[postId];
+      resolve(entry?.manualScore ?? null);
+    });
+  });
+}
+
+// ============================================================
+// STATISTIQUES DE MASQUAGE
+// ============================================================
+
+function todayString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function incrementStats(sponsored, scrollPx) {
+  chrome.storage.local.get(["bsd_stats"], (result) => {
+    const today = todayString();
+    const s = result.bsd_stats || {};
+    if (s.today_date !== today) {
+      s.today_date      = today;
+      s.today_bs        = 0;
+      s.today_sponsored = 0;
+    }
+    if (sponsored) {
+      s.today_sponsored = (s.today_sponsored || 0) + 1;
+      s.total_sponsored = (s.total_sponsored || 0) + 1;
+    } else {
+      s.today_bs    = (s.today_bs    || 0) + 1;
+      s.total_bs    = (s.total_bs    || 0) + 1;
+    }
+    s.total_scroll_px = (s.total_scroll_px || 0) + scrollPx;
+    chrome.storage.local.set({ bsd_stats: s });
+  });
+}
+
 // ============================================================
 // MODE FILTRE — placeholder cliquable
 // ============================================================
 
 function applyFilterMode(postEl, score, sponsored = false) {
+  const scrollPx = postEl.offsetHeight || 0;
+
   postEl.querySelectorAll(':scope > *').forEach(el => {
     if (!el.classList.contains('bsd-placeholder')) el.style.display = "none";
   });
   if (postEl.querySelector('.bsd-placeholder')) return;
+
+  // Incrémenter les stats même en mode silencieux
+  incrementStats(sponsored, scrollPx);
+
   if (SILENT_HIDE) return;
 
   const label = sponsored ? t("content_sponsored") : t("content_hidden", score);
 
   const placeholder = document.createElement("div");
   placeholder.className = "bsd-placeholder" + (sponsored ? " bsd-placeholder-sponsored" : "");
-  placeholder.innerHTML = `<span>${label}</span><button class="bsd-show-btn">${t("content_show")}</button>`;
+  placeholder.innerHTML = `
+    <span>${label}</span>
+    <div class="bsd-placeholder-actions">
+      <button class="bsd-show-btn">${t("content_show")}</button>
+      <button class="bsd-silent-btn">${t("content_silent_btn")}</button>
+    </div>
+  `;
 
   placeholder.querySelector(".bsd-show-btn").addEventListener("click", () => {
     placeholder.remove();
     postEl.querySelectorAll(':scope > *').forEach(el => el.style.display = "");
     postEl.dataset.bsdDone = "shown";
+  });
+
+  placeholder.querySelector(".bsd-silent-btn").addEventListener("click", () => {
+    // Activer le masquage silencieux globalement
+    SILENT_HIDE = true;
+    chrome.storage.local.set({ bsd_silent_hide: true });
+    // Supprimer tous les placeholders existants (ils disparaissent silencieusement)
+    document.querySelectorAll('.bsd-placeholder').forEach(p => p.remove());
+    log("🔇 Silent mode enabled from placeholder");
   });
 
   postEl.appendChild(placeholder);
@@ -221,7 +310,7 @@ function applyFilterMode(postEl, score, sponsored = false) {
 // MODE COLLECTE — widget notation
 // ============================================================
 
-function createCollectWidget(postEl, postId, postData, autoScore) {
+async function createCollectWidget(postEl, postId, postData, autoScore) {
   const isSuspect = autoScore >= 4;
   const autoLevel = autoScore >= 7 ? "🔴" : autoScore >= 4 ? "🟠" : "🟢";
 
@@ -233,41 +322,44 @@ function createCollectWidget(postEl, postId, postData, autoScore) {
     ? `<div class="bsd-promoted">${t("widget_promoted", postData.feedContext)}</div>`
     : "";
 
+  // Récupérer une note déjà sauvegardée si elle existe
+  const savedScore = await getSavedScore(postId);
+  const initialSliderVal = savedScore !== null ? savedScore : 5;
+  const initialLabelVal  = savedScore !== null ? (savedScore + "/10 " + t("widget_saved")) : t("widget_manual_none");
+
   const widget = document.createElement("div");
   widget.className = "bsd-widget" + (isSuspect ? " bsd-suspect" : "");
   widget.dataset.postId = postId;
   widget.innerHTML = `
     ${promotedHtml}
     <div class="bsd-auto-badge">
+      <span class="bsd-auto-label">${t("widget_auto_label")}</span>
       <span>${autoLevel} ${t("widget_model_score", autoScore)}</span>
     </div>
     <div class="bsd-slider-wrap">
-      <label>${t("widget_manual_label")} <strong class="bsd-manual-val">${t("widget_manual_none")}</strong></label>
+      <label>${t("widget_manual_label")} <strong class="bsd-manual-val">${initialLabelVal}</strong></label>
       <div class="bsd-slider-row">
-        <span class="bsd-tick">0</span>
-        <input type="range" class="bsd-slider" min="0" max="10" step="1" value="5">
-        <span class="bsd-tick">10</span>
-        <button class="bsd-save-btn">${t("widget_save")}</button>
+        <span class="bsd-tick bsd-tick-label">${t("widget_scale_low")}</span>
+        <input type="range" class="bsd-slider" min="0" max="10" step="1" value="${initialSliderVal}">
+        <span class="bsd-tick bsd-tick-label">${t("widget_scale_high")}</span>
       </div>
     </div>
-    <div class="bsd-saved-msg" style="display:none">${t("widget_saved_msg")}</div>
   `;
 
   const slider    = widget.querySelector(".bsd-slider");
   const manualVal = widget.querySelector(".bsd-manual-val");
-  const savedMsg  = widget.querySelector(".bsd-saved-msg");
-  const saveBtn   = widget.querySelector(".bsd-save-btn");
 
-  slider.addEventListener("input", () => { manualVal.textContent = slider.value + "/10"; });
+  // Mise à jour du label pendant le glissement
+  slider.addEventListener("input", () => {
+    manualVal.textContent = slider.value + "/10";
+    manualVal.classList.remove("bsd-saved-label");
+  });
 
-  saveBtn.addEventListener("click", async () => {
+  // Sauvegarde automatique au relâchement
+  slider.addEventListener("change", async () => {
     await savePost(postId, postData, parseInt(slider.value), autoScore);
-    savedMsg.style.display = "block";
-    saveBtn.textContent = t("widget_saved");
-    setTimeout(() => {
-      savedMsg.style.display = "none";
-      saveBtn.textContent = t("widget_save");
-    }, 2000);
+    manualVal.textContent = slider.value + "/10 " + t("widget_saved");
+    manualVal.classList.add("bsd-saved-label");
   });
 
   return widget;
@@ -277,7 +369,7 @@ function createCollectWidget(postEl, postId, postData, autoScore) {
 // TRAITEMENT D'UN POST
 // ============================================================
 
-function processPost(postEl) {
+async function processPost(postEl) {
   if (postEl.dataset.bsdDone === "shown") return;
   if (postEl.dataset.bsdDone === "1") return;
 
@@ -288,7 +380,7 @@ function processPost(postEl) {
 
   postEl.dataset.bsdDone = "1";
 
-  if (MODE === "filter" && HIDE_SPONSORED && isSponsored(postEl)) {
+  if (HIDE_SPONSORED && isSponsored(postEl)) {
     log("📢 Sponsored hidden");
     applyFilterMode(postEl, 0, true);
     return;
@@ -303,7 +395,8 @@ function processPost(postEl) {
   if (MODE === "filter" && score >= THRESHOLD) {
     applyFilterMode(postEl, score);
   } else if (MODE === "collect") {
-    postEl.appendChild(createCollectWidget(postEl, postId, data, score));
+    const widget = await createCollectWidget(postEl, postId, data, score);
+    postEl.appendChild(widget);
   }
 }
 
@@ -343,13 +436,22 @@ chrome.runtime.onMessage.addListener((msg) => {
     resetAllPosts();
   }
   if (msg.type === "BSD_MODEL_UPDATED") {
-    MODEL = msg.model;
-    log("🧠 Model updated —", MODEL.n_samples, "posts · MAE val", MODEL.mae_val?.toFixed(2));
-    resetAllPosts();
+    CUSTOM_MODEL = msg.model;
+    // Récupérer mae_base et n_labelled à jour
+    chrome.storage.local.get(["bsd_mae_base", "bullshit_dataset"], (r) => {
+      MAE_BASE   = r.bsd_mae_base || null;
+      N_LABELLED = Object.values(r.bullshit_dataset || {})
+        .filter(p => p.manualScore !== null && p.manualScore !== undefined).length;
+      log("🧠 Model updated — w =", MAE_BASE ? computeW(
+        CUSTOM_MODEL.mae_val ?? CUSTOM_MODEL.mae_train, MAE_BASE, N_LABELLED
+      ).toFixed(2) : "?");
+      resetAllPosts();
+    });
   }
   if (msg.type === "BSD_MODEL_RESET") {
-    const url = chrome.runtime.getURL("tfidf_vocab.json");
-    fetch(url).then(r => r.json()).then(m => { MODEL = m; resetAllPosts(); });
+    CUSTOM_MODEL = null;
+    MAE_BASE     = null;
+    resetAllPosts();
   }
   // ── Changement de langue ──
   if (msg.type === "BSD_LANG_CHANGED") {
