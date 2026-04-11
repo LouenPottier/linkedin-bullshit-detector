@@ -47,7 +47,7 @@ Score thresholds: 🟢 < 4 / 🟠 4–6 / 🔴 ≥ 7.
 
 ### In-browser (recommended)
 
-Once you've labeled posts in Collect mode, click **🔁 Retrain model** in the popup. The extension will:
+Once you've labeled posts in Collect mode, click **🔁 Réentraîner le modèle** in the popup. The extension will:
 
 1. Recompute TF-IDF weights (IDF) from your labeled corpus
 2. Refit the StandardScaler on your numeric features
