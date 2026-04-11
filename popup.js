@@ -367,6 +367,8 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
     thresholdSection.style.display = m === "filter" ? "block" : "none";
     const filterStatsEl = document.getElementById("filter-stats");
     if (filterStatsEl) filterStatsEl.style.display = m === "filter" ? "block" : "none";
+    const filterUpdateEl = document.getElementById("filter-update");
+    if (filterUpdateEl) filterUpdateEl.style.display = m === "filter" ? "block" : "none";
     // La grille collecte ne s'affiche qu'en mode collecte
     const loadedEl = document.getElementById("loaded-state");
     if (loadedEl) loadedEl.style.display = m === "collect" ? "" : "none";
@@ -650,3 +652,7 @@ function notifyContentScript(msg) {
     if (tabs[0]?.id) chrome.tabs.sendMessage(tabs[0].id, msg).catch(() => {});
   });
 }
+
+document.getElementById("btn-github")?.addEventListener("click", () => {
+  chrome.tabs.create({ url: "https://github.com/LouenPottier/linkedin-bullshit-detector" });
+});

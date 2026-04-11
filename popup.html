@@ -234,7 +234,32 @@
       opacity: 0.75;
       transition: opacity 0.15s;
     }
-    .btn-clear-sm:hover { opacity: 1; }
+    .share-note {
+      font-size: 10.5px;
+      color: #888;
+      font-style: italic;
+      margin-bottom: 4px;
+    }
+    .filter-update-note {
+      font-size: 10.5px;
+      color: #aaa;
+      font-style: italic;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+    .filter-update-btn {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 11px;
+      color: #0a66c2;
+      text-decoration: none;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 4px 10px;
+      transition: background 0.15s;
+    }
+    .filter-update-btn:hover { background: #f0f4ff; }
     .dev-note {
       font-size: 10px;
       color: #bbb;
@@ -418,6 +443,7 @@
 
       <!-- Export / Clear — discrets, tout en bas, visibles en mode collecte uniquement -->
       <div class="actions-secondary" id="actions-secondary">
+        <p class="share-note" data-i18n="popup_share_note"></p>
         <div class="actions-row">
           <button class="btn-export-sm" id="btn-import" data-i18n="popup_import"></button>
           <input type="file" id="import-file" accept=".json" style="display:none">
@@ -426,6 +452,11 @@
         <button class="btn-clear-sm"  id="btn-clear"  data-i18n="popup_clear"></button>
       </div>
     </div>
+  </div>
+
+  <div id="filter-update" style="display:none">
+    <p class="filter-update-note" data-i18n="popup_filter_update_note"></p>
+    <button class="filter-update-btn" id="btn-github" data-i18n="popup_filter_update_btn"></button>
   </div>
 
   <script src="i18n.js"></script>
