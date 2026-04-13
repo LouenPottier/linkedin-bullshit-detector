@@ -68,7 +68,51 @@ const STORAGE_KEYS = [
 const MIN_POSTS_TO_TRAIN = 20;
 
 function adaptiveAlpha(n) {
-  return Math.max(20 / n, 0.01);
+  return Math.max(20 / n, 0.5);
+}
+
+// ============================================================
+// SIGMOID / LOGIT  (transformation des labels)
+// ============================================================
+
+function logit10(y) {
+  const p = Math.max(1e-6, Math.min(1 - 1e-6, y / 10));
+  return Math.log(p / (1 - p));
+}
+
+// k = pente stockée dans le modèle (model.sigmoid_slope)
+function sigmoid10(x, k) {
+  return 10 / (1 + Math.exp(-k * x));
+}
+
+// ============================================================
+// HELPERS — emojis et phrases courtes
+// ============================================================
+
+// Retourne un tableau de {emoji, count} triés par fréquence décroissante
+// sur l'ensemble des textes du corpus
+function extractTopEmojis(texts, topN = 10) {
+  const counts = new Map();
+  for (const text of texts) {
+    const seen = new Set();
+    for (const ch of text) {
+      const cp = ch.codePointAt(0);
+      if (cp > 0x1F000) {
+        if (!seen.has(ch)) { seen.add(ch); counts.set(ch, (counts.get(ch) || 0) + 1); }
+      }
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([emoji]) => emoji);
+}
+
+// Compte les phrases de moins de k mots dans text
+function countShortSentences(text, maxWords) {
+  if (!text) return 0;
+  const sentences = text.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 0);
+  return sentences.filter(s => s.split(/\s+/).length < maxWords).length;
 }
 
 // ============================================================
@@ -138,16 +182,30 @@ function fcFlag(fc) {
   return fc && fc.toLowerCase().includes("profil") ? 1 : 0;
 }
 
-function buildNumFeatures(post) {
+// topEmojis : tableau de 15 emojis (appris sur le corpus) ou null (base model)
+// Si null, les 15 features emoji sont à 0 (compat base model)
+function buildNumFeatures(post, topEmojis) {
   const text     = post.text || "";
   const headline = post.headline || "";
   const wordCount = text.split(/\s+/).length;
   const emojiCount = [...text].filter(c => c.codePointAt(0) > 0x1F000).length;
-  return [
+
+  // Features de base (6)
+  const base = [
     parseCount(post.likes), parseCount(post.comments),
-    text.length, wordCount, fcFlag(post.feedContext),
+    text.length, wordCount,
     emojiCount / Math.max(wordCount, 1), headline.length,
   ];
+
+  // Features phrases courtes (4) : < 3, 5, 7, 10 mots
+  const shortSent = [3, 5, 7, 10].map(k => countShortSentences(text, k));
+
+  // Features top-15 emojis (15) : nb occurrences de chaque emoji dans le post
+  const emojiFeats = topEmojis
+    ? topEmojis.map(em => [...text].filter(c => c === em).length)
+    : new Array(10).fill(0);
+
+  return [...base, ...shortSent, ...emojiFeats];
 }
 
 // ============================================================
@@ -161,8 +219,7 @@ function fitScaler(matrix) {
   for (const row of matrix) for (let j = 0; j < n; j++) mean[j] += row[j];
   for (let j = 0; j < n; j++) mean[j] /= matrix.length;
   for (const row of matrix) for (let j = 0; j < n; j++) scale[j] += (row[j] - mean[j]) ** 2;
-  const ddof = Math.max(matrix.length - 1, 1);
-  for (let j = 0; j < n; j++) scale[j] = Math.sqrt(scale[j] / ddof) || 1;
+  for (let j = 0; j < n; j++) scale[j] = Math.sqrt(scale[j] / matrix.length) || 1;
   return { mean, scale };
 }
 
@@ -207,31 +264,35 @@ function solveLinear(A, b, n) {
 }
 
 function solveRidge(X, y, alpha) {
-  const m = X.length, n = X[0].length;
-  const xMean = new Float64Array(n);
-  let yMean = 0;
-  for (let i = 0; i < m; i++) { for (let j = 0; j < n; j++) xMean[j] += X[i][j]; yMean += y[i]; }
-  for (let j = 0; j < n; j++) xMean[j] /= m;
-  yMean /= m;
-  const Xc = X.map(row => row.map((v, j) => v - xMean[j]));
-  const yc  = y.map(v => v - yMean);
+  // Résolution analytique avec biais explicite (colonne de 1)
+  // Augmenter X d'une colonne de 1 pour l'intercept, sans régulariser cette colonne
+  const m = X.length, n = X[0].length + 1; // +1 pour le biais
+  const Xa = X.map(row => [1, ...row]);     // biais en position 0
+
   const XtX = new Float64Array(n * n);
-  for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) XtX[j * n + k] += Xc[i][j] * Xc[i][k];
-  for (let j = 0; j < n; j++) XtX[j * n + j] += alpha;
+  for (let i = 0; i < m; i++)
+    for (let j = 0; j < n; j++)
+      for (let k = 0; k < n; k++)
+        XtX[j * n + k] += Xa[i][j] * Xa[i][k];
+  // Régulariser toutes les features sauf le biais (j=0)
+  for (let j = 1; j < n; j++) XtX[j * n + j] += alpha;
+
   const Xty = new Float64Array(n);
-  for (let i = 0; i < m; i++) for (let j = 0; j < n; j++) Xty[j] += Xc[i][j] * yc[i];
+  for (let i = 0; i < m; i++)
+    for (let j = 0; j < n; j++)
+      Xty[j] += Xa[i][j] * y[i];
+
   const w = solveLinear(XtX, Xty, n);
-  let intercept = yMean;
-  for (let j = 0; j < n; j++) intercept -= xMean[j] * w[j];
-  return { coef: Array.from(w), intercept };
+  return { coef: Array.from(w).slice(1), intercept: w[0] };
 }
 
-function computeMAE(X, y, coef, intercept) {
+function computeMAE(X, y, coef, intercept, slope) {
   let mae = 0;
   for (let i = 0; i < X.length; i++) {
     let pred = intercept;
     for (let j = 0; j < coef.length; j++) pred += coef[j] * X[i][j];
-    mae += Math.abs(Math.max(0, Math.min(10, pred)) - y[i]);
+    pred = slope != null ? sigmoid10(pred, slope) : Math.max(0, Math.min(10, pred));
+    mae += Math.abs(pred - y[i]);
   }
   return mae / X.length;
 }
@@ -249,34 +310,64 @@ function hashPostId(id) {
 async function trainModel(posts, vocabData, onProgress) {
   const vocab  = vocabData.vocabulary;
   const nTfidf = vocabData.n_tfidf_features;
-  const nNum   = vocabData.n_num_features;
   const labelledPosts = posts.filter(p => p.manualScore !== null && p.manualScore !== undefined);
   const corpus = labelledPosts.map(p => `${p.text || ""} ${p.headline || ""}`.trim());
   const idf    = computeIDF(corpus, vocab, nTfidf);
-  const Xraw = [], y = [], postIds = [];
+
+  // Calculer les 15 emojis les plus fréquents sur le corpus labellisé
+  const topEmojis = extractTopEmojis(labelledPosts.map(p => p.text || ""), 10);
+
+  const Xraw = [], yRaw = [], postIds = [];
   for (const post of labelledPosts) {
     const combined = `${post.text || ""} ${post.headline || ""}`.trim();
-    Xraw.push({ tfidf: tfidfVector(combined, vocab, idf, nTfidf), numRaw: buildNumFeatures(post) });
-    y.push(post.manualScore);
+    Xraw.push({ tfidf: tfidfVector(combined, vocab, idf, nTfidf), numRaw: buildNumFeatures(post, topEmojis) });
+    yRaw.push(post.manualScore);
     postIds.push(post.postId || "");
   }
+
+  const nNum = Xraw[0].numRaw.length; // 7 + 4 + 15 = 26
+
+  // Transformer les labels avec logit
+  const yLogit = yRaw.map(v => logit10(v));
+
   const scaler = fitScaler(Xraw.map(x => x.numRaw));
   const Xfull  = Xraw.map(x => [...x.tfidf, ...applyScaler(x.numRaw, scaler)]);
+
   const trainIdx = [], valIdx = [];
   for (let i = 0; i < Xfull.length; i++) (hashPostId(postIds[i]) % 5 === 0 ? valIdx : trainIdx).push(i);
   if (valIdx.length === 0) trainIdx.forEach((_, k) => { if (k % 5 === 0) valIdx.push(trainIdx.splice(k, 1)[0]); });
+
   onProgress(1, 2);
-  const alpha = adaptiveAlpha(y.length);
-  const { coef: coefVal, intercept: intVal } = solveRidge(trainIdx.map(i => Xfull[i]), trainIdx.map(i => y[i]), alpha);
-  const maeVal = computeMAE(valIdx.map(i => Xfull[i]), valIdx.map(i => y[i]), coefVal, intVal);
+  const alpha = adaptiveAlpha(yLogit.length);
+  // Pente sigmoid identique à train.py défaut
+  const slope = vocabData.sigmoid_slope ?? 0.5;
+
+  // Passe 1 : validation (entraîné sur logit, MAE en espace original via sigmoid10)
+  const { coef: coefVal, intercept: intVal } = solveRidge(
+    trainIdx.map(i => Xfull[i]), trainIdx.map(i => yLogit[i]), alpha
+  );
+  const maeVal = computeMAE(
+    valIdx.map(i => Xfull[i]), valIdx.map(i => yRaw[i]), coefVal, intVal, slope
+  );
+
   onProgress(2, 2);
-  const { coef, intercept } = solveRidge(Xfull, y, alpha);
+
+  // Passe 2 : modèle final sur 100% des données
+  const { coef, intercept } = solveRidge(Xfull, yLogit, alpha);
+
+  const NUM_FEATURE_NAMES = [
+    "likes", "comments", "text_len", "word_count", "emoji_ratio", "headline_len",
+    "short_sent_3", "short_sent_5", "short_sent_7", "short_sent_10",
+    ...topEmojis.map(em => `emoji_${[...em].map(c => c.codePointAt(0).toString(16)).join("_")}`),
+  ];
+
   return {
     vocabulary: vocab, idf: Array.from(idf), vocab_list: vocabData.vocab_list,
     sublinear_tf: true, scaler_mean: Array.from(scaler.mean), scaler_scale: Array.from(scaler.scale),
     ridge_coef: coef, ridge_intercept: intercept,
-    n_tfidf_features: nTfidf, n_num_features: nNum, num_feature_names: vocabData.num_feature_names,
-    trained_at: new Date().toISOString(), n_samples: y.length, alpha_used: alpha, mae_val: maeVal,
+    n_tfidf_features: nTfidf, n_num_features: nNum, num_feature_names: NUM_FEATURE_NAMES,
+    top_emojis: topEmojis, use_sigmoid: true, sigmoid_slope: slope,
+    trained_at: new Date().toISOString(), n_samples: yRaw.length, alpha_used: alpha, mae_val: maeVal,
   };
 }
 
@@ -361,6 +452,9 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
   const btnCollect       = document.getElementById("btn-mode-collect");
   const thresholdSection = document.getElementById("threshold-section");
 
+  // nPosts sera défini après que posts soit connu (plus bas)
+  let nPosts = 0;
+
   function applyMode(m) {
     btnFilter.classList.toggle("active",  m === "filter");
     btnCollect.classList.toggle("active", m === "collect");
@@ -369,11 +463,14 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
     if (filterStatsEl) filterStatsEl.style.display = m === "filter" ? "block" : "none";
     const filterUpdateEl = document.getElementById("filter-update");
     if (filterUpdateEl) filterUpdateEl.style.display = m === "filter" ? "block" : "none";
-    // La grille collecte ne s'affiche qu'en mode collecte
+    // loaded-state : toujours visible en mode collecte
     const loadedEl = document.getElementById("loaded-state");
     if (loadedEl) loadedEl.style.display = m === "collect" ? "" : "none";
     const actionsEl = document.getElementById("actions-secondary");
     if (actionsEl) actionsEl.style.display = m === "collect" ? "flex" : "none";
+    // empty-state : visible en mode collecte ET 0 posts
+    const emptyEl = document.getElementById("empty-state");
+    if (emptyEl) emptyEl.style.display = (m === "collect" && nPosts === 0) ? "block" : "none";
   }
   applyMode(mode);
 
@@ -425,17 +522,9 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
 
   const posts = Object.values(dataset);
 
-  if (posts.length === 0) {
-    document.getElementById("empty-state").style.display  = "block";
-    document.getElementById("loaded-state").style.display = "none";
-    // Afficher quand même le message dans la stat card si elle était visible
-    // → rien à faire ici, loaded-state est caché
-    return;
-  }
-
-  document.getElementById("empty-state").style.display  = "none";
-  // loaded-state visible seulement en mode collecte (applyMode le gère aussi)
-  document.getElementById("loaded-state").style.display = mode === "collect" ? "block" : "none";
+  // Mettre à jour nPosts et rafraîchir l'affichage maintenant qu'on connaît posts
+  nPosts = posts.length;
+  applyMode(mode);
 
   const scores = posts.map(p => p.manualScore).filter(s => s !== undefined && s !== null);
   const avg    = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "—";
@@ -497,7 +586,7 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
 
   document.getElementById("btn-clear").addEventListener("click", () => {
     if (confirm(t("popup_clear_confirm", posts.length))) {
-      chrome.storage.local.remove(["bullshit_dataset"], () => window.close());
+      chrome.storage.local.remove(["bullshit_dataset"], () => window.location.reload());
     }
   });
 
@@ -523,11 +612,14 @@ chrome.storage.local.get(STORAGE_KEYS, async (result) => {
       const intercept   = vocabData.ridge_intercept;
       const scalerMean  = vocabData.scaler_mean;
       const scalerScale = vocabData.scaler_scale;
+      const nNum        = vocabData.n_num_features; // 7 pour le modèle de base
       let maeSum = 0;
       for (const post of labelledPosts) {
         const combined  = `${post.text || ""} ${post.headline || ""}`.trim();
         const tfidfVec  = tfidfVector(combined, vocab, idf, nTfidf);
-        const numRaw    = buildNumFeatures(post);
+        // Le modèle de base a 7 features numériques — on passe null pour topEmojis
+        // et on tronque au nombre de features du modèle de base
+        const numRaw    = buildNumFeatures(post, null).slice(0, nNum);
         const numScaled = numRaw.map((v, i) => (v - scalerMean[i]) / scalerScale[i]);
         let pred = intercept;
         for (let i = 0; i < nTfidf; i++) pred += tfidfVec[i] * coef[i];

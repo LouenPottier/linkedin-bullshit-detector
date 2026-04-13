@@ -75,19 +75,41 @@ function tfidfVectorFromModel(text, model) {
 function scoreFromModel(postData, model) {
   const combined  = `${postData.text || ""} ${postData.headline || ""}`.trim();
   const tfidfVec  = tfidfVectorFromModel(combined, model);
-  const textWords = (postData.text || "").split(/\s+/);
+  const text      = postData.text || "";
+  const textWords = text.split(/\s+/);
   const wordCount = textWords.length;
-  const emojiCount = [...(postData.text || "")].filter(c => c.codePointAt(0) > 0x1F000).length;
-  const rawNum = [
+  const emojiCount = [...text].filter(c => c.codePointAt(0) > 0x1F000).length;
+
+  // Features de base (6)
+  const baseNum = [
     parseCount(postData.likes), parseCount(postData.comments),
-    (postData.text || "").length, wordCount, feedContextFlag(postData.feedContext),
+    text.length, wordCount,
     emojiCount / Math.max(wordCount, 1), (postData.headline || "").length,
   ];
-  const scaledNum = rawNum.map((v, i) => (v - model.scaler_mean[i]) / model.scaler_scale[i]);
+
+  // Features phrases courtes (4)
+  const shortSent = [3, 5, 7, 10].map(k => countShortSentences(text, k));
+
+  // Features top-15 emojis — lues depuis model.top_emojis (null = base model)
+  const topEmojis = model.top_emojis || null;
+  const emojiFeats = topEmojis
+    ? topEmojis.map(em => [...text].filter(c => c === em).length)
+    : new Array(10).fill(0);
+
+  const rawNum = [...baseNum, ...shortSent, ...emojiFeats];
+  const nNum   = model.n_num_features;
+  const rawNumTrunc = rawNum.slice(0, nNum);
+
+  const scaledNum = rawNumTrunc.map((v, i) => (v - model.scaler_mean[i]) / model.scaler_scale[i]);
   const coef = model.ridge_coef;
   let score  = model.ridge_intercept;
   for (let i = 0; i < model.n_tfidf_features; i++) score += tfidfVec[i] * coef[i];
-  for (let i = 0; i < model.n_num_features; i++)   score += scaledNum[i] * coef[model.n_tfidf_features + i];
+  for (let i = 0; i < nNum; i++) score += scaledNum[i] * coef[model.n_tfidf_features + i];
+
+  if (model.use_sigmoid) {
+    const k = model.sigmoid_slope ?? 1.0;
+    return Math.max(0, Math.min(10, 10 / (1 + Math.exp(-k * score))));
+  }
   return Math.max(0, Math.min(10, score));
 }
 
@@ -98,6 +120,12 @@ function parseCount(s) {
 
 function feedContextFlag(fc) {
   return fc && fc.toLowerCase().includes("profil") ? 1 : 0;
+}
+
+function countShortSentences(text, maxWords) {
+  if (!text) return 0;
+  const sentences = text.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 0);
+  return sentences.filter(s => s.split(/\s+/).length < maxWords).length;
 }
 
 function computeModelScore(postData) {
