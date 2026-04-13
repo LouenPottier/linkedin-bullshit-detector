@@ -2,7 +2,7 @@
 
 A Chrome extension that detects and filters low-quality LinkedIn posts using a Ridge Regression model that can be retrained on your own labels in one click. Everything run on your browser.
 
----
+
 
 ## What it does
 
@@ -14,7 +14,7 @@ LBD runs in two modes, switchable from the popup:
 
 Once you've labeled enough posts, you can retrain the model directly from the popup in one click.
 
----
+
 
 ## Installation
 
@@ -26,7 +26,7 @@ No build step required. Load it directly as an unpacked extension:
 4. Click **Load unpacked** and select the repository folder
 5. Navigate to [linkedin.com](https://www.linkedin.com)
 
----
+
 
 ## How the model works
 
@@ -37,7 +37,7 @@ Posts are scored by a **Ridge Regression** model combining two types of features
 
 Inference runs in pure JavaScript. No external dependencies, no network calls.
 
----
+
 
 ## Retraining the model
 
@@ -66,7 +66,7 @@ python train.py your_dataset.json
 
 This overwrites `tfidf_vocab.json`. Reload the extension in Chrome to apply. Under normal use you don't need to run this, the in-browser retraining handles everything.
 
----
+
 
 ## Data & privacy
 
