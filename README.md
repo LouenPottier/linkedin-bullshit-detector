@@ -1,6 +1,6 @@
 # 🛡️ LinkedIn Bullshit Detector (LBD)
 
-A Chrome extension that detects and filters low-quality LinkedIn posts using a personalized Ridge Regression model — trained entirely in your browser, on your own labels, with no server required.
+A Chrome extension that detects and filters low-quality LinkedIn posts using a Ridge Regression model that can be retrained on your own labels in one click. Everything run on your browser.
 
 ---
 
@@ -8,11 +8,11 @@ A Chrome extension that detects and filters low-quality LinkedIn posts using a p
 
 LBD runs in two modes, switchable from the popup:
 
-**🚫 Filter mode** — automatically hides posts above a configurable bullshit threshold. Sponsored posts can also be hidden. A placeholder shows the score and lets you reveal the post if you want.
+**🚫 Filter mode** : automatically hides posts above a configurable bullshit threshold. Sponsored posts can also be hidden. A placeholder shows the score and lets you reveal the post if you want.
 
-**🧪 Collect mode** — injects a rating widget under every post. For each post it shows the automatic score, detected bullshit keywords, and a 0–10 slider to record your own judgment. Labeled posts are saved locally and can be exported as JSON.
+**🧪 Collect mode** : injects a rating widget under every post. For each post it shows the automatic score and a 0–10 slider to record your own judgment. Labeled posts are saved locally only.
 
-Once you've labeled enough posts, you can retrain the model directly from the popup — no Python, no server.
+Once you've labeled enough posts, you can retrain the model directly from the popup in one click.
 
 ---
 
@@ -32,14 +32,10 @@ No build step required. Load it directly as an unpacked extension:
 
 Posts are scored by a **Ridge Regression** model combining two types of features:
 
-- **TF-IDF** — a weighted bag-of-words representation of the post text and author headline (500 features, uni- and bigrams)
-- **Numeric features** — likes, comments, text length, word count, emoji ratio, keyword count, and whether the post was algorithmically promoted
+- **TF-IDF** : a weighted bag-of-words representation of the post text and author headline (500 features)
+- **Numeric features** : likes, comments, text length, word count, emoji ratio, keyword count, phrase lengths
 
-Inference runs in pure JavaScript — no external dependencies, no network calls.
-
-Keywords from `rules.js` are displayed under the score as informational tags but do not drive the score itself.
-
-Score thresholds: 🟢 < 4 / 🟠 4–6 / 🔴 ≥ 7.
+Inference runs in pure JavaScript. No external dependencies, no network calls.
 
 ---
 
@@ -47,44 +43,28 @@ Score thresholds: 🟢 < 4 / 🟠 4–6 / 🔴 ≥ 7.
 
 ### In-browser (recommended)
 
-Once you've labeled posts in Collect mode, click **🔁 Réentraîner le modèle** in the popup. The extension will:
+Once you've labeled posts in Collect mode, click **🔁 Retrain** in the popup. The extension will:
 
 1. Recompute TF-IDF weights (IDF) from your labeled corpus
 2. Refit the StandardScaler on your numeric features
-3. Solve Ridge analytically — same result as `sklearn.Ridge`, no approximation
+3. Solve Ridge analytically
 4. Report a validation MAE on a held-out 20% split (deterministic, stable across runs)
 5. Retrain on 100% of your data and save the model to `chrome.storage.local`
 
-The regularization strength (alpha) is chosen automatically based on dataset size. The model activates immediately — no reload needed.
+The regularization strength (alpha) is chosen automatically based on dataset size. The model activates immediately, no reload needed.
 
 At least 20 labeled posts are required to retrain; 50+ are recommended for reliable results.
 
 ### From scratch with Python (for reproducibility)
 
-`train.py` generates the bootstrap `tfidf_vocab.json` — the fixed vocabulary, initial IDF weights, and baseline Ridge coefficients. It is kept in the repo so the full pipeline can be reproduced from scratch.
+`train.py` generates the bootstrap `tfidf_vocab.json` the fixed vocabulary, initial IDF weights, and baseline Ridge coefficients. It is kept in the repo so the full pipeline can be reproduced from scratch.
 
 ```bash
 pip install scikit-learn skl2onnx
 python train.py your_dataset.json
 ```
 
-This overwrites `tfidf_vocab.json`. Reload the extension in Chrome to apply. Under normal use, you don't need to run this — the in-browser retraining handles everything.
-
----
-
-## Roadmap
-
-- [x] Rule-based auto-scoring (heuristic baseline)
-- [x] Manual rating widget + local storage
-- [x] JSON export
-- [x] Bootstrap model: Ridge Regression trained with scikit-learn
-- [x] In-browser inference — no server required
-- [x] In-browser retraining — IDF + scaler + Ridge, analytically exact
-- [x] Deterministic train/val split stable across dataset updates
-- [x] Adaptive regularization based on dataset size
-- [x] Filter mode: sponsored post hiding, silent mode
-- [ ] Collect 300+ labeled posts and retrain for improved accuracy
-- [ ] Explore stronger architectures (gradient boosting, sentence embeddings) as the dataset grows
+This overwrites `tfidf_vocab.json`. Reload the extension in Chrome to apply. Under normal use you don't need to run this, the in-browser retraining handles everything.
 
 ---
 
