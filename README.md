@@ -72,7 +72,7 @@ This overwrites `tfidf_vocab.json`. Reload the extension in Chrome to apply. Und
 
 All data stays **local in your browser** via `chrome.storage.local`. Nothing is sent anywhere. The JSON export is yours to use for training or analysis.
 
----
+
 
 ## License
 
