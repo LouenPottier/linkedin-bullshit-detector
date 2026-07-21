@@ -149,9 +149,40 @@ function computeModelScore(postData) {
 // DÉTECTION — posts sponsorisés
 // ============================================================
 
+// Libellé du bandeau publicitaire, selon la langue et la variante d'UI :
+// « Sponsorisé », « Post sponsorisé », « Promoted », « Sponsored post »…
+// Ancré aux deux bouts pour éviter de matcher un vrai post qui parlerait de pub.
+const SPONSORED_RE =
+  /^(post |publication )?(sponsorise\w*|sponsored|promoted|promu\w*|publicite)( post)?$/;
+
+// Minuscules, accents retirés (é → e, pour que \w suffise), puces / séparateurs
+// de fin supprimés, espaces normalisés.
+function normalizeLabel(tx) {
+  return tx
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[•·∙\-–—\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// LinkedIn change régulièrement la balise, les attributs et le libellé exact
+// (juil. 2026 : « Sponsorisé » → « Post sponsorisé », déplacé dans un <span>
+// enfant du <p componentkey>). On scanne donc toutes les feuilles textuelles
+// courtes, sans exiger d'attribut ni d'égalité stricte.
 function isSponsored(postEl) {
-  return [...postEl.querySelectorAll('p[componentkey], span[componentkey]')]
-    .some(el => el.textContent.trim() === 'Sponsorisé' || el.textContent.trim() === 'Promoted');
+  for (const el of postEl.querySelectorAll('p, span, div, li, a')) {
+    if (el.children.length > 0) continue;          // feuilles uniquement
+    const tx = el.textContent.trim();
+    if (!tx || tx.length > 30) continue;           // le libellé fait un ou deux mots
+    if (SPONSORED_RE.test(normalizeLabel(tx))) return true;
+  }
+  // Variante accessible : le libellé peut n'exister que dans un aria-label.
+  for (const el of postEl.querySelectorAll('[aria-label]')) {
+    const al = normalizeLabel(el.getAttribute("aria-label"));
+    if (al.length <= 30 && SPONSORED_RE.test(al)) return true;
+  }
+  return false;
 }
 
 // ============================================================
@@ -401,18 +432,21 @@ async function processPost(postEl) {
   if (postEl.dataset.bsdDone === "shown") return;
   if (postEl.dataset.bsdDone === "1") return;
 
+  // Test sponsorisé AVANT le garde-fou sur le bouton de menu : les publicités
+  // n'ont pas d'auteur au sens habituel, leur aria-label diffère souvent.
+  if (HIDE_SPONSORED && isSponsored(postEl)) {
+    postEl.dataset.bsdDone = "1";
+    log("📢 Sponsored hidden");
+    applyFilterMode(postEl, 0, true);
+    return;
+  }
+
   const menuBtn = postEl.querySelector(
     'button[aria-label^="Ouvrir le menu de commandes pour le post de"], button[aria-label^="Open control menu for post by"]'
   );
   if (!menuBtn) return;
 
   postEl.dataset.bsdDone = "1";
-
-  if (HIDE_SPONSORED && isSponsored(postEl)) {
-    log("📢 Sponsored hidden");
-    applyFilterMode(postEl, 0, true);
-    return;
-  }
 
   const data             = extractPostData(postEl);
   const postId           = generatePostId(postEl);
@@ -528,6 +562,19 @@ async function init() {
   findAndProcessPosts();
   observer.observe(document.body, { childList: true, subtree: true });
 }
+
+// Helper de debug : dans la console de linkedin.com, taper `__bsdDumpLabels()`
+// pour lister les feuilles textuelles courtes de chaque post (là où se cache le
+// libellé « Sponsorisé ») et vérifier ce que voit réellement isSponsored().
+window.__bsdDumpLabels = () => {
+  document.querySelectorAll('[componentkey^="expanded"]').forEach((postEl, i) => {
+    const short = [...postEl.querySelectorAll('p, span, div, li, a')]
+      .filter(el => el.children.length === 0)
+      .map(el => el.textContent.trim())
+      .filter(tx => tx && tx.length <= 30);
+    console.log(`[BSD] post #${i} sponsored=${isSponsored(postEl)}`, short);
+  });
+};
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);

@@ -62,6 +62,20 @@ Le popup envoie des messages via `chrome.tabs.sendMessage` ; `content.js` écout
 
 `extractPostData` dans `content.js` dépend de la structure DOM de LinkedIn (attributs `componentkey`, libellés `aria-label` FR/EN, filtrage par listes `NOISE`). C'est le point le plus susceptible de casser quand LinkedIn change son interface. Les posts sont repérés via `[componentkey^="expanded"]`.
 
+### Détection des posts sponsorisés
+
+`isSponsored` scanne toutes les **feuilles textuelles courtes** (≤ 30 caractères, n'importe quelle balise, plus un repli sur `aria-label`) et les teste contre `SPONSORED_RE`, après normalisation (minuscules, accents retirés, puces de fin supprimées).
+
+**Ne jamais revenir à une égalité stricte ni à un sélecteur d'attribut** : LinkedIn a déjà cassé la détection deux fois de cette manière. Historique :
+
+| Avant | Après (juil. 2026) |
+|-------|--------------------|
+| `p[componentkey]` / `span[componentkey]` dont le `textContent` vaut exactement `"Sponsorisé"` | `<p componentkey><span>Post sponsorisé</span></p>` — libellé renommé **et** déplacé dans un `<span>` enfant |
+
+Le motif est ancré aux deux bouts (`^…$`) pour qu'un vrai post parlant de publicité ne soit pas masqué à tort.
+
+Pour diagnostiquer une future régression : helper `__bsdDumpLabels()` en fin de `content.js`, à lancer dans la console DevTools de linkedin.com **après avoir basculé le sélecteur de contexte JS sur l'extension** (le content script vit dans un monde isolé). Il liste, pour chaque post, les textes courts que voit le détecteur.
+
 ## Conventions
 
 - Commentaires et messages utilisateur en **français** ; identifiants en anglais.
